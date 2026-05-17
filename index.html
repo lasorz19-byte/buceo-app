@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Bitácora de Buceo</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f9ff; color: #1e293b; }
+    select, input, textarea, button { font-family: inherit; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const SUPABASE_URL = 'https://dqirekqfbzuekeoajxyn.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxaXJla3FmYnp1ZWtlb2FqeHluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4OTM0ODEsImV4cCI6MjA5NDQ2OTQ4MX0.8vc4oZa_B9_A_Kfh2KF_mLcPLv02cC-2veBjSgPmqnQ';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const GEAR  = ["BCD","REG","MASK","FINS","WS","WB"];
+const CERTS = ["Sin certificación","OW","AOW","Rescue","Divemaster","Instructor","TEC","Otro"];
+const AGENCIES = ["PADI","SSI","NAUI","CMAS","SDI/TDI","RAID","SNSI","Otra"];
+const STATUS = {
+  programada:{ bg:"#e0f2fe", text:"#0369a1", dot:"#0ea5e9", label:"Programada" },
+  completada: { bg:"#dcfce7", text:"#15803d", dot:"#22c55e", label:"Completada" },
+  cancelada:  { bg:"#fee2e2", text:"#b91c1c", dot:"#ef4444", label:"Cancelada"  },
+};
+const DAYS   = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const GC = [
+  { border:"#0ea5e9", bg:"#f0f9ff", badge:"#0369a1", badgeBg:"#e0f2fe" },
+  { border:"#10b981", bg:"#f0fdf4", badge:"#065f46", badgeBg:"#d1fae5" },
+  { border:"#f59e0b", bg:"#fffbeb", badge:"#92400e", badgeBg:"#fef3c7" },
+  { border:"#8b5cf6", bg:"#faf5ff", badge:"#5b21b6", badgeBg:"#ede9fe" },
+  { border:"#ef4444", bg:"#fff1f2", badge:"#991b1b", badgeBg:"#fee2e2" },
+];
+
+const newGrupo  = () => ({ id:Date.now()+Math.random(), instructor:"", clientes:[] });
+const newSalida = () => ({ fecha:"", hora:"", embarcacion_id:"", capitan_id:"", grupos:[newGrupo()], notas:"" });
+const newCliente= () => ({ nombre:"", apellido:"", telefono:"", email:"", agencia:"PADI", certificacion:"OW", numero_buzo:"", nacimiento:"", notas:"" });
+const newCap    = () => ({ nombre:"", apellido:"", telefono:"", notas:"" });
+const newEmb    = () => ({ nombre:"", matricula:"", capacidad:"", notas:"" });
+
+const fn    = c => `${c.nombre} ${c.apellido||""}`.trim();
+const cNum  = n => `C-${String(n).padStart(4,"0")}`;
+const sNum  = n => `S-${String(n).padStart(4,"0")}`;
+
+function App() {
+  const [salidas,  setSalidas]  = useState([]);
+  const [clientes, setClientes] = useState([]);
+  const [caps,     setCaps]     = useState([]);
+  const [embs,     setEmbs]     = useState([]);
+  const [loading,  setLoading]  = useState(true);
+
+  const [sf,  setSf]  = useState(newSalida());
+  const [ss,  setSs]  = useState("programada");
+  const [sid, setSid] = useState(null);
+  const [sExp,setSExp]= useState({});
+  const [sFil,setSFil]= useState("todas");
+  const [sQ,  setSQ]  = useState("");
+
+  const [cf,  setCf]  = useState(newCliente());
+  const [cid, setCid] = useState(null);
+  const [cQ,  setCQ]  = useState("");
+  const [cDet,setCDet]= useState(null);
+  const [dup, setDup] = useState(null);
+
+  const [capF,setCapF]= useState(newCap());
+  const [capId,setCapId]=useState(null);
+  const [embF,setEmbF]= useState(newEmb());
+  const [embId,setEmbId]=useState(null);
+
+  const [calY,setCalY]= useState(new Date().getFullYear());
+  const [calM,setCalM]= useState(new Date().getMonth());
+  const [calD,setCalD]= useState(null);
+  const [sec, setSec] = useState("salidas");
+  const [tab, setTab] = useState("embs");
+  const [view,setView]= useState("lista");
+  const [toast,setToast]=useState(null);
+
+  useEffect(()=>{ load(); },[]);
+
+  const load = async () => {
+    setLoading(true);
+    const [s,c,ca,e] = await Promise.all([
+      db.from("salidas").select("*").order("created_at",{ascending:false}),
+      db.from("clientes").select("*").order("apellido"),
+      db.from("capitanes").select("*").order("nombre"),
+      db.from("embarcaciones").select("*").order("nombre"),
+    ]);
+    if(s.data)  setSalidas(s.data);
+    if(c.data)  setClientes(c.data);
+    if(ca.data) setCaps(ca.data);
+    if(e.data)  setEmbs(e.data);
+    setLoading(false);
+  };
+
+  const nextNum = async (tipo) => {
+    const {data} = await db.from("counters").select("valor").eq("id",tipo).single();
+    const v = data?.valor||1;
+    await db.from("counters").update({valor:v+1}).eq("id",tipo);
+    return v;
+  };
+
+  const toast_ = (msg,type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),2800); };
+  const go = (s,v) => { setSec(s); setView(v); setCalD(null); };
+
+  const embN = id => embs.find(x=>x.id===id)?.nombre||"—";
+  const capN = id => { const c=caps.find(x=>x.id===id); return c?fn(c):"—"; };
+  const tPax = s  => s.grupos?.reduce((a,g)=>a+(g.clientes?.length||0),0)||0;
+  const tIns = s  => s.grupos?.length||0;
+  const hist = cid=> salidas.filter(s=>(s.grupos||[]).some(g=>(g.clientes||[]).some(c=>c.clienteId===cid)));
+
+  // Grupos
+  const ugr = (gi,f,v) => setSf(s=>({...s,grupos:s.grupos.map((g,i)=>i===gi?{...g,[f]:v}:g)}));
+  const agr = () => setSf(s=>({...s,grupos:[...s.grupos,newGrupo()]}));
+  const rgr = gi => { if(sf.grupos.length===1)return; setSf(s=>({...s,grupos:s.grupos.filter((_,i)=>i!==gi)})); };
+  const aGC = (gi,cl) => setSf(s=>({...s,grupos:s.grupos.map((g,i)=>i!==gi?g:{...g,clientes:[...(g.clientes||[]),{clienteId:cl.id,nombre:fn(cl),gear:{}}]})}));
+  const rGC = (gi,ci) => setSf(s=>({...s,grupos:s.grupos.map((g,i)=>i!==gi?g:{...g,clientes:g.clientes.filter((_,j)=>j!==ci)})}));
+  const tG  = (gi,ci,gear) => setSf(s=>({...s,grupos:s.grupos.map((g,i)=>i!==gi?g:{...g,clientes:g.clientes.map((c,j)=>j!==ci?c:{...c,gear:{...(c.gear||{}),[gear]:!(c.gear?.[gear])}})})}));
+  const avail= gi => { const used=new Set((sf.grupos[gi]?.clientes||[]).map(c=>c.clienteId)); return clientes.filter(c=>!used.has(c.id)); };
+
+  // Salidas CRUD
+  const saveSalida = async () => {
+    if(!sf.fecha||!sf.hora){toast_("Completa fecha y hora.","error");return;}
+    if(sf.grupos.some(g=>!g.instructor.trim())){toast_("Cada grupo necesita instructor.","error");return;}
+    const p={fecha:sf.fecha,hora:sf.hora,embarcacion_id:sf.embarcacion_id||null,capitan_id:sf.capitan_id||null,grupos:sf.grupos,notas:sf.notas||null,status:ss};
+    if(sid){
+      const {error}=await db.from("salidas").update(p).eq("id",sid);
+      if(error){toast_("Error al actualizar.","error");return;}
+      setSalidas(x=>x.map(s=>s.id===sid?{...s,...p}:s));
+      toast_("Salida actualizada.");
+    } else {
+      const n=await nextNum("salidas");
+      const {data,error}=await db.from("salidas").insert({...p,num_salida:n}).select().single();
+      if(error){toast_("Error al registrar.","error");return;}
+      setSalidas(x=>[data,...x]);
+      toast_("Salida registrada.");
+    }
+    setSf(newSalida()); setSs("programada"); setSid(null); setView("lista");
+  };
+
+  const editSalida = s => { setSf({fecha:s.fecha,hora:s.hora,embarcacion_id:s.embarcacion_id||"",capitan_id:s.capitan_id||"",grupos:s.grupos?.length?s.grupos:[newGrupo()],notas:s.notas||""}); setSs(s.status); setSid(s.id); setView("nueva"); };
+  const delSalida  = async id => { await db.from("salidas").delete().eq("id",id); setSalidas(x=>x.filter(s=>s.id!==id)); toast_("Salida eliminada.","error"); };
+  const chgStatus  = async (id,ns) => { await db.from("salidas").update({status:ns}).eq("id",id); setSalidas(x=>x.map(s=>s.id===id?{...s,status:ns}:s)); };
+
+  // Clientes CRUD
+  const checkDup = (form,editId) => {
+    const n=form.nombre.trim().toLowerCase(), a=form.apellido.trim().toLowerCase();
+    return clientes.filter(c=>{
+      if(c.id===editId)return false;
+      return (c.nombre.toLowerCase()===n&&c.apellido.toLowerCase()===a)||(form.email&&c.email?.toLowerCase()===form.email.toLowerCase())||(form.telefono&&c.telefono===form.telefono)||(form.numero_buzo&&c.numero_buzo===form.numero_buzo);
+    });
+  };
+  const saveCliente = async (force=false) => {
+    if(!cf.nombre.trim()||!cf.apellido.trim()){toast_("Nombre y apellido obligatorios.","error");return;}
+    if(!force){const d=checkDup(cf,cid);if(d.length>0){setDup(d);return;}}
+    setDup(null);
+    if(cid){
+      const {error}=await db.from("clientes").update(cf).eq("id",cid);
+      if(error){toast_("Error al actualizar.","error");return;}
+      setClientes(x=>x.map(c=>c.id===cid?{...c,...cf}:c));
+      toast_("Cliente actualizado.");
+    } else {
+      const n=await nextNum("clientes");
+      const {data,error}=await db.from("clientes").insert({...cf,num_cliente:n}).select().single();
+      if(error){toast_("Error al registrar.","error");return;}
+      setClientes(x=>[data,...x]);
+      toast_(`Cliente registrado — ${cNum(n)}`);
+    }
+    setCf(newCliente()); setCid(null); setView("lista");
+  };
+  const editCliente = c => { setCf({nombre:c.nombre,apellido:c.apellido||"",telefono:c.telefono||"",email:c.email||"",agencia:c.agencia||"PADI",certificacion:c.certificacion||"OW",numero_buzo:c.numero_buzo||"",nacimiento:c.nacimiento||"",notas:c.notas||""}); setCid(c.id); setDup(null); setView("clienteForm"); };
+  const delCliente  = async id => { await db.from("clientes").delete().eq("id",id); setClientes(x=>x.filter(c=>c.id!==id)); setCDet(null); setView("lista"); toast_("Cliente eliminado.","error"); };
+
+  // Catálogo CRUD
+  const saveCat = async (table,form,editId,setter,reset,label) => {
+    if(!form.nombre?.trim()){toast_("Nombre obligatorio.","error");return;}
+    if(editId){
+      const {error}=await db.from(table).update(form).eq("id",editId);
+      if(error){toast_("Error.","error");return;}
+      setter(x=>x.map(i=>i.id===editId?{...i,...form}:i));
+      toast_(`${label} actualizado.`);
+    } else {
+      const {data,error}=await db.from(table).insert(form).select().single();
+      if(error){toast_("Error.","error");return;}
+      setter(x=>[data,...x]);
+      toast_(`${label} registrado.`);
+    }
+    reset(); setView("catalogo");
+  };
+  const delCat = async (table,id,setter,label) => { await db.from(table).delete().eq("id",id); setter(x=>x.filter(i=>i.id!==id)); toast_(`${label} eliminado.`,"error"); };
+
+  // Excel
+  const exportXLS = () => {
+    if(!salidas.length){toast_("No hay salidas.","error");return;}
+    const rows=[];
+    salidas.forEach(s=>(s.grupos||[]).forEach(g=>(g.clientes||[]).forEach(c=>{
+      const cl=clientes.find(x=>x.id===c.clienteId)||{};
+      rows.push({"#Salida":sNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Embarcación":embN(s.embarcacion_id),"Capitán":capN(s.capitan_id),"Instructor":g.instructor,"#Cliente":cl.num_cliente?cNum(cl.num_cliente):"","Nombre":cl.nombre||"","Apellido":cl.apellido||"","Agencia":cl.agencia||"","Cert.":cl.certificacion||"","#Buzo":cl.numero_buzo||"",...Object.fromEntries(GEAR.map(g=>[g,c.gear?.[g]?"✓":""])), "Estado":STATUS[s.status]?.label||s.status,"Notas":s.notas||""});
+    })));
+    const ws=XLSX.utils.json_to_sheet(rows);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"Salidas");
+    XLSX.writeFile(wb,`buceo_${new Date().toISOString().slice(0,10)}.xlsx`);
+    toast_("Excel descargado ✓");
+  };
+
+  // Calendar
+  const byDate={};
+  salidas.forEach(s=>{if(!byDate[s.fecha])byDate[s.fecha]=[];byDate[s.fecha].push(s);});
+  const p2  = n=>String(n).padStart(2,"0");
+  const dKey= d=>`${calY}-${p2(calM+1)}-${p2(d)}`;
+  const fd  = new Date(calY,calM,1).getDay();
+  const td  = new Date(calY,calM+1,0).getDate();
+  const dEvs= calD?(byDate[dKey(calD)]||[]):[];
+
+  const fSal = salidas.filter(s=>{
+    const ok=sFil==="todas"||s.status===sFil;
+    const q=sQ.toLowerCase();
+    const t=[embN(s.embarcacion_id),capN(s.capitan_id),s.fecha,...(s.grupos||[]).flatMap(g=>[g.instructor,...(g.clientes||[]).map(c=>c.nombre)])].join(" ").toLowerCase();
+    return ok&&(!q||t.includes(q));
+  });
+  const fCli = clientes.filter(c=>{ const q=cQ.toLowerCase(); return !q||[c.nombre,c.apellido,c.email,c.telefono,c.certificacion,c.num_cliente?cNum(c.num_cliente):""].join(" ").toLowerCase().includes(q); });
+  const cnts = { programada:salidas.filter(s=>s.status==="programada").length, completada:salidas.filter(s=>s.status==="completada").length, cancelada:salidas.filter(s=>s.status==="cancelada").length };
+
+  if(loading) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:16,background:"#f0f9ff"}}>
+      <div style={{fontSize:52}}>🤿</div>
+      <div style={{fontSize:16,fontWeight:600,color:"#0c4a6e"}}>Cargando Bitácora de Buceo...</div>
+    </div>
+  );
+
+  return (
+    <div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",minHeight:"100vh",background:"#f0f9ff",color:"#1e293b"}}>
+
+      {/* HEADER */}
+      <header style={{background:"#0c4a6e",padding:"0 20px",boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>
+        <div style={{maxWidth:1200,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 0",flexWrap:"wrap",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <span style={{fontSize:32}}>🤿</span>
+            <div>
+              <div style={{fontSize:19,fontWeight:700,color:"#fff"}}>Bitácora de Buceo</div>
+              <div style={{fontSize:11,color:"#7dd3fc"}}>Gestión de salidas · Clientes</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            <div style={{display:"flex",gap:4}}>
+              {[["lista","📋 Salidas"],["calendario","📅 Calendario"]].map(([v,l])=>(
+                <button key={v} onClick={()=>go("salidas",v)} style={{...Btn, background:sec==="salidas"&&view===v?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>{l}</button>
+              ))}
+            </div>
+            <button onClick={()=>go("clientes","lista")} style={{...Btn,background:sec==="clientes"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>👥 Clientes</button>
+            <button onClick={()=>go("catalogo","catalogo")} style={{...Btn,background:sec==="catalogo"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>📂 Catálogo</button>
+            <div style={{width:1,height:28,background:"rgba(255,255,255,0.2)"}}/>
+            {sec==="salidas"&&<>
+              <button onClick={exportXLS} style={{...Btn,background:"#065f46",color:"#fff"}}>⬇ Excel</button>
+              <button onClick={()=>{setSf(newSalida());setSs("programada");setSid(null);go("salidas","nueva");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Nueva Salida</button>
+            </>}
+            {sec==="clientes"&&<button onClick={()=>{setCf(newCliente());setCid(null);setDup(null);go("clientes","clienteForm");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Nuevo Cliente</button>}
+          </div>
+        </div>
+      </header>
+
+      <main style={{maxWidth:1200,margin:"0 auto",padding:"24px 16px"}}>
+
+        {/* Stats */}
+        {sec==="salidas"&&view!=="nueva"&&(
+          <div style={{display:"flex",gap:12,marginBottom:24,flexWrap:"wrap"}}>
+            {Object.entries(STATUS).map(([k,v])=>(
+              <div key={k} style={{...Card,padding:"14px 18px",minWidth:100,display:"flex",flexDirection:"column",alignItems:"center",background:v.bg}}>
+                <div style={{fontSize:26,fontWeight:800,lineHeight:1,color:v.text}}>{cnts[k]}</div>
+                <div style={{fontSize:11,fontWeight:600,marginTop:4,textTransform:"uppercase",color:v.text}}>{v.label}</div>
+              </div>
+            ))}
+            <div style={{...Card,padding:"14px 18px",minWidth:100,display:"flex",flexDirection:"column",alignItems:"center",background:"#f1f5f9"}}>
+              <div style={{fontSize:26,fontWeight:800,lineHeight:1,color:"#475569"}}>{salidas.length}</div>
+              <div style={{fontSize:11,fontWeight:600,marginTop:4,textTransform:"uppercase",color:"#475569"}}>Total</div>
+            </div>
+            <div style={{...Card,padding:"14px 18px",minWidth:100,display:"flex",flexDirection:"column",alignItems:"center",background:"#faf5ff"}}>
+              <div style={{fontSize:26,fontWeight:800,lineHeight:1,color:"#5b21b6"}}>{clientes.length}</div>
+              <div style={{fontSize:11,fontWeight:600,marginTop:4,textTransform:"uppercase",color:"#5b21b6"}}>Clientes</div>
+            </div>
+          </div>
+        )}
+
+        {/* ── FORM SALIDA ── */}
+        {sec==="salidas"&&view==="nueva"&&(
+          <div style={Card}>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{sid?"✏️ Editar Salida":"🚤 Registrar Nueva Salida"}</h2>
+            <Lbl>Datos del bote</Lbl>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              <FField label="Fecha *" type="date" value={sf.fecha} onChange={v=>setSf({...sf,fecha:v})}/>
+              <FField label="Hora *"  type="time" value={sf.hora}  onChange={v=>setSf({...sf,hora:v})}/>
+              <div>
+                <label style={LS}>Embarcación</label>
+                <select style={SS} value={sf.embarcacion_id} onChange={e=>setSf({...sf,embarcacion_id:e.target.value})}>
+                  <option value="">— Seleccionar —</option>
+                  {embs.map(e=><option key={e.id} value={e.id}>{e.nombre}{e.matricula?` · ${e.matricula}`:""}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={LS}>Capitán</label>
+                <select style={SS} value={sf.capitan_id} onChange={e=>setSf({...sf,capitan_id:e.target.value})}>
+                  <option value="">— Seleccionar —</option>
+                  {caps.map(c=><option key={c.id} value={c.id}>{fn(c)}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"24px 0 12px"}}>
+              <Lbl>Grupos de instructores</Lbl>
+              <button onClick={agr} style={{...Btn,background:"#0c4a6e",color:"#fff"}}>+ Agregar instructor</button>
+            </div>
+
+            {sf.grupos.map((g,gi)=>{
+              const gc=GC[gi%GC.length];
+              return (
+                <div key={g.id} style={{borderRadius:12,padding:16,border:"1px solid #e2e8f0",borderLeft:`4px solid ${gc.border}`,background:gc.bg,marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+                    <span style={{...Badge,background:gc.badgeBg,color:gc.badge}}>Instructor {gi+1}</span>
+                    {sf.grupos.length>1&&<button onClick={()=>rgr(gi)} style={{...Btn,background:"#fee2e2",color:"#b91c1c",fontSize:12}}>✕ Quitar</button>}
+                  </div>
+                  <div style={{marginBottom:14}}>
+                    <label style={LS}>Nombre del instructor *</label>
+                    <input style={IS} placeholder="Nombre completo" value={g.instructor} onChange={e=>ugr(gi,"instructor",e.target.value)}/>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                    <label style={LS}>Clientes asignados</label>
+                    <CliSelector disp={avail(gi)} onSel={c=>aGC(gi,c)} gc={gc}/>
+                  </div>
+                  {(g.clientes||[]).length===0?(
+                    <div style={{fontSize:13,color:"#94a3b8",padding:"10px 0"}}>Sin clientes asignados.</div>
+                  ):(<>
+                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0",borderBottom:"1px solid #e2e8f0",marginBottom:6}}>
+                      <div style={{flex:1,fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase"}}>Buzo</div>
+                      {GEAR.map(g=><div key={g} style={{width:36,textAlign:"center",fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",flexShrink:0}}>{g}</div>)}
+                      <div style={{width:28}}/>
+                    </div>
+                    {(g.clientes||[]).map((c,ci)=>(
+                      <div key={ci} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 0",borderBottom:"1px solid rgba(0,0,0,0.04)"}}>
+                        <div style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0,background:gc.badgeBg,color:gc.badge}}>{ci+1}</div>
+                        <div style={{flex:1,fontSize:14,fontWeight:500,minWidth:100}}>{c.nombre}</div>
+                        {GEAR.map(gear=>(
+                          <label key={gear} style={{cursor:"pointer",flexShrink:0,width:36,display:"flex",justifyContent:"center"}}>
+                            <input type="checkbox" checked={!!(c.gear?.[gear])} onChange={()=>tG(gi,ci,gear)} style={{display:"none"}}/>
+                            <div style={{width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,cursor:"pointer",background:c.gear?.[gear]?gc.badge:"#fff",border:`2px solid ${c.gear?.[gear]?gc.badge:"#cbd5e1"}`,color:"#fff"}}>
+                              {c.gear?.[gear]&&"✓"}
+                            </div>
+                          </label>
+                        ))}
+                        <button onClick={()=>rGC(gi,ci)} style={{background:"#fff1f2",color:"#b91c1c",border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,cursor:"pointer",fontWeight:700}}>✕</button>
+                      </div>
+                    ))}
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:8,alignItems:"center",fontSize:12}}>
+                      <span style={{color:"#94a3b8",marginRight:4}}>Equipo:</span>
+                      {GEAR.map(g=><span key={g} style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600}}>{g}</span>)}
+                    </div>
+                  </>)}
+                </div>
+              );
+            })}
+
+            <div style={{marginTop:24}}>
+              <Lbl>Estado y notas</Lbl>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+                {Object.entries(STATUS).map(([k,v])=>(
+                  <button key={k} onClick={()=>setSs(k)} style={{padding:"8px 16px",borderRadius:8,cursor:"pointer",fontSize:13,background:ss===k?v.bg:"#f8fafc",color:ss===k?v.text:"#64748b",border:`2px solid ${ss===k?v.text:"#e2e8f0"}`,fontWeight:ss===k?700:400}}>{v.label}</button>
+                ))}
+              </div>
+              <label style={LS}>Notas</label>
+              <textarea style={{...IS,resize:"vertical",background:"#f8fafc"}} rows={3} value={sf.notas} onChange={e=>setSf({...sf,notas:e.target.value})}/>
+            </div>
+            <div style={{display:"flex",gap:12,marginTop:24}}>
+              <button style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={saveSalida}>{sid?"Guardar Cambios":"Registrar Salida"}</button>
+              <button style={{...Btn,background:"#e2e8f0",color:"#475569",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>{setSf(newSalida());setSid(null);setView("lista");}}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── LISTA SALIDAS ── */}
+        {sec==="salidas"&&view==="lista"&&(<>
+          <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+            <input style={{...IS,flex:1,minWidth:220}} placeholder="🔍  Buscar embarcación, instructor, cliente..." value={sQ} onChange={e=>setSQ(e.target.value)}/>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {["todas","programada","completada","cancelada"].map(f=>(
+                <button key={f} onClick={()=>setSFil(f)} style={{...Btn,background:sFil===f?"#0ea5e9":"#f1f5f9",color:sFil===f?"#fff":"#475569"}}>{f.charAt(0).toUpperCase()+f.slice(1)}</button>
+              ))}
+            </div>
+          </div>
+          {fSal.length===0?(
+            <div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>⚓</div><div style={{color:"#94a3b8",marginTop:8}}>{salidas.length===0?"No hay salidas aún.":"Sin resultados."}</div></div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              {fSal.map(s=>{
+                const sc=STATUS[s.status], isExp=sExp[s.id], nI=tIns(s), nC=tPax(s);
+                return (
+                  <div key={s.id} style={{...Card,padding:0,overflow:"hidden"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",flexWrap:"wrap",gap:10}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",flex:1}}>
+                        <div style={{minWidth:80}}>
+                          <div style={{fontSize:11,color:"#0369a1",fontWeight:700}}>{sNum(s.num_salida||0)}</div>
+                          <div style={{fontWeight:700,fontSize:15}}>🚤 {embN(s.embarcacion_id)}</div>
+                          <div style={{fontSize:12,color:"#94a3b8"}}>{s.fecha} · {s.hora}</div>
+                        </div>
+                        {s.capitan_id&&<span style={Chip}>⚓ {capN(s.capitan_id)}</span>}
+                        <span style={Chip}>👤 {nI} instructor{nI!==1?"es":""}</span>
+                        <span style={Chip}>🤿 {nC} buzo{nC!==1?"s":""}</span>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                        <select value={s.status} onChange={e=>chgStatus(s.id,e.target.value)} style={{border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",background:sc.bg,color:sc.text}}>
+                          {Object.entries(STATUS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                        <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editSalida(s)}>✏️</button>
+                        <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delSalida(s.id)}>🗑️</button>
+                        <button onClick={()=>setSExp(x=>({...x,[s.id]:!x[s.id]}))} style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#0c4a6e"}}>{isExp?"▲ Ocultar":"▼ Grupos"}</button>
+                      </div>
+                    </div>
+                    {isExp&&(
+                      <div style={{borderTop:"1px solid #f1f5f9",padding:"14px 18px",background:"#fafafa"}}>
+                        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                          {(s.grupos||[]).map((g,gi)=>{
+                            const gc=GC[gi%GC.length];
+                            return (
+                              <div key={gi} style={{borderRadius:10,padding:12,borderLeft:`4px solid ${gc.border}`,background:gc.bg}}>
+                                <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:10}}>
+                                  <span style={{...Badge,background:gc.badgeBg,color:gc.badge}}>Instructor {gi+1}</span>
+                                  <span style={{fontWeight:700,fontSize:14}}>👤 {g.instructor||"—"}</span>
+                                </div>
+                                {(g.clientes||[]).length===0?(<div style={{fontSize:13,color:"#94a3b8"}}>Sin clientes</div>):(
+                                  <div style={{overflowX:"auto"}}>
+                                    <table style={{borderCollapse:"collapse",width:"100%",minWidth:380}}>
+                                      <thead><tr>
+                                        <th style={TH}>#</th>
+                                        <th style={{...TH,textAlign:"left"}}>#Cliente</th>
+                                        <th style={{...TH,textAlign:"left"}}>Buzo</th>
+                                        {GEAR.map(g=><th key={g} style={TH}>{g}</th>)}
+                                      </tr></thead>
+                                      <tbody>{(g.clientes||[]).map((c,ci)=>{
+                                        const cl=clientes.find(x=>x.id===c.clienteId);
+                                        return (
+                                          <tr key={ci} style={{borderBottom:"1px solid rgba(0,0,0,0.05)"}}>
+                                            <td style={{...TD,color:gc.badge,fontWeight:700}}>{ci+1}</td>
+                                            <td style={{...TD,fontSize:11,color:"#0369a1",fontWeight:600}}>{cl?cNum(cl.num_cliente):"—"}</td>
+                                            <td style={{...TD,fontWeight:500,cursor:"pointer",color:"#0369a1",textDecoration:"underline"}} onClick={()=>{if(cl){setCDet(cl);go("clientes","clienteDetalle");}}}>{c.nombre}</td>
+                                            {GEAR.map(g=><td key={g} style={{...TD,textAlign:"center"}}>{c.gear?.[g]?<span style={{color:gc.badge,fontWeight:700}}>✓</span>:<span style={{color:"#e2e8f0"}}>—</span>}</td>)}
+                                          </tr>
+                                        );
+                                      })}</tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {s.notas&&<div style={{marginTop:10,fontSize:13,color:"#64748b",background:"#f1f5f9",borderRadius:8,padding:"8px 12px"}}>📝 {s.notas}</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>)}
+
+        {/* ── CALENDARIO ── */}
+        {sec==="salidas"&&view==="calendario"&&(
+          <div style={Card}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:24,marginBottom:20}}>
+              <button style={{background:"#f1f5f9",border:"none",borderRadius:8,width:36,height:36,fontSize:20,cursor:"pointer",color:"#0c4a6e",fontWeight:700}} onClick={()=>{if(calM===0){setCalM(11);setCalY(y=>y-1);}else setCalM(m=>m-1);setCalD(null);}}>‹</button>
+              <span style={{fontSize:20,fontWeight:700,color:"#0c4a6e",minWidth:200,textAlign:"center"}}>{MONTHS[calM]} {calY}</span>
+              <button style={{background:"#f1f5f9",border:"none",borderRadius:8,width:36,height:36,fontSize:20,cursor:"pointer",color:"#0c4a6e",fontWeight:700}} onClick={()=>{if(calM===11){setCalM(0);setCalY(y=>y+1);}else setCalM(m=>m+1);setCalD(null);}}>›</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
+              {DAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",padding:"6px 0"}}>{d}</div>)}
+              {Array(fd).fill(null).map((_,i)=><div key={"e"+i}/>)}
+              {Array(td).fill(null).map((_,i)=>{
+                const day=i+1,key=dKey(day),evs=byDate[key]||[];
+                const today=new Date(), isT=today.getFullYear()===calY&&today.getMonth()===calM&&today.getDate()===day, isSel=calD===day;
+                return (
+                  <div key={day} onClick={()=>setCalD(isSel?null:day)} style={{borderRadius:10,padding:"8px 6px",minHeight:64,transition:"all 0.15s",cursor:"pointer",background:isSel?"#0c4a6e":isT?"#e0f2fe":"#fff",border:isSel?"2px solid #0ea5e9":isT?"2px solid #7dd3fc":"1px solid #e2e8f0"}}>
+                    <div style={{fontWeight:isT||isSel?700:400,color:isSel?"#fff":isT?"#0369a1":"#1e293b",fontSize:14}}>{day}</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:3}}>
+                      {evs.slice(0,3).map(ev=><span key={ev.id} style={{width:8,height:8,borderRadius:"50%",background:STATUS[ev.status]?.dot}}/>)}
+                      {evs.length>3&&<span style={{fontSize:10,color:"#64748b"}}>+{evs.length-3}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{display:"flex",gap:16,marginTop:14,flexWrap:"wrap"}}>
+              {Object.entries(STATUS).map(([k,v])=>(
+                <div key={k} style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"#64748b"}}>
+                  <span style={{width:10,height:10,borderRadius:"50%",background:v.dot,display:"inline-block"}}/>{v.label}
+                </div>
+              ))}
+            </div>
+            {calD&&(
+              <div style={{marginTop:20,background:"#f8fafc",borderRadius:12,padding:20,border:"1px solid #e2e8f0"}}>
+                <div style={{fontSize:16,fontWeight:700,color:"#0c4a6e",marginBottom:14}}>
+                  📅 {calD} de {MONTHS[calM]} {calY}
+                  <span style={{fontWeight:400,fontSize:13,color:"#64748b",marginLeft:10}}>{dEvs.length===0?"Sin salidas":`${dEvs.length} salida${dEvs.length>1?"s":""}`}</span>
+                </div>
+                {dEvs.length===0?<div style={{color:"#94a3b8",fontSize:14}}>No hay salidas.</div>
+                :dEvs.map(ev=>{
+                  const sc=STATUS[ev.status];
+                  return (
+                    <div key={ev.id} style={{...Card,borderLeft:`4px solid ${sc.dot}`,marginBottom:12}}>
+                      <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                        <div>
+                          <span style={{fontWeight:700}}>🚤 {embN(ev.embarcacion_id)}</span>
+                          <span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>{ev.hora}</span>
+                          {ev.capitan_id&&<span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>⚓ {capN(ev.capitan_id)}</span>}
+                        </div>
+                        <span style={{fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:6,background:sc.bg,color:sc.text}}>{sc.label}</span>
+                      </div>
+                      {(ev.grupos||[]).map((g,gi)=>{
+                        const gc=GC[gi%GC.length];
+                        return (
+                          <div key={gi} style={{borderRadius:10,padding:10,borderLeft:`3px solid ${gc.border}`,background:gc.bg,marginBottom:8}}>
+                            <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>👤 {g.instructor}</div>
+                            {(g.clientes||[]).map((c,ci)=><div key={ci} style={{fontSize:12,color:"#374151"}}>🤿 {c.nombre}</div>)}
+                          </div>
+                        );
+                      })}
+                      {ev.notas&&<div style={{marginTop:8,fontSize:13,color:"#64748b",background:"#f1f5f9",borderRadius:8,padding:"8px 12px"}}>📝 {ev.notas}</div>}
+                      <div style={{display:"flex",gap:8,marginTop:10}}>
+                        <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editSalida(ev)}>✏️ Editar</button>
+                        <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{delSalida(ev.id);setCalD(null);}}>🗑️ Eliminar</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── CLIENTES LISTA ── */}
+        {sec==="clientes"&&view==="lista"&&(<>
+          <div style={{fontSize:20,fontWeight:700,color:"#0c4a6e",marginBottom:16}}>👥 Clientes <span style={{fontSize:13,fontWeight:400,color:"#64748b"}}>{clientes.length} registrados</span></div>
+          <input style={{...IS,width:"100%",marginBottom:16}} placeholder="🔍  Buscar nombre, apellido, certificación..." value={cQ} onChange={e=>setCQ(e.target.value)}/>
+          {fCli.length===0?(
+            <div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>👥</div><div style={{color:"#94a3b8",marginTop:8}}>{clientes.length===0?"No hay clientes aún.":"Sin resultados."}</div></div>
+          ):(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+              {fCli.map(c=>{
+                const h=hist(c.id);
+                return (
+                  <div key={c.id} style={{...Card,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}} onClick={()=>{setCDet(c);setView("clienteDetalle");}}>
+                    <div style={{width:44,height:44,borderRadius:"50%",background:"#0c4a6e",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,flexShrink:0}}>{c.nombre.charAt(0).toUpperCase()}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:15}}>{fn(c)}</div>
+                      <div style={{fontSize:11,color:"#0369a1",fontWeight:600}}>{cNum(c.num_cliente)}</div>
+                      <div style={{fontSize:12,color:"#64748b"}}>{c.agencia} · {c.certificacion}</div>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>
+                      <span style={{background:"#e0f2fe",color:"#0369a1",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>{c.certificacion}</span>
+                      <span style={{fontSize:11,color:"#94a3b8"}}>{h.length} salida{h.length!==1?"s":""}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>)}
+
+        {/* ── CLIENTE FORM ── */}
+        {sec==="clientes"&&view==="clienteForm"&&(
+          <div style={Card}>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{cid?"✏️ Editar Cliente":"👤 Nuevo Cliente"}</h2>
+            {dup&&(
+              <div style={{background:"#fff7ed",border:"1px solid #f59e0b",borderRadius:10,padding:16,marginBottom:20,color:"#92400e"}}>
+                <div style={{fontWeight:700,marginBottom:6}}>⚠️ Posible duplicado detectado</div>
+                {dup.map(d=><div key={d.id} style={{fontSize:13,marginBottom:4}}><b>{cNum(d.num_cliente)}</b> — {fn(d)}</div>)}
+                <div style={{display:"flex",gap:10,marginTop:10}}>
+                  <button style={{...Btn,background:"#b91c1c",color:"#fff",fontSize:13}} onClick={()=>saveCliente(true)}>Registrar de todas formas</button>
+                  <button style={{...Btn,background:"#e2e8f0",color:"#475569",fontSize:13}} onClick={()=>setDup(null)}>Cancelar</button>
+                </div>
+              </div>
+            )}
+            <Lbl>Datos personales</Lbl>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+              <FField label="Nombre *" value={cf.nombre} onChange={v=>setCf({...cf,nombre:v})}/>
+              <FField label="Apellido *" value={cf.apellido} onChange={v=>setCf({...cf,apellido:v})}/>
+              <FField label="Teléfono" value={cf.telefono} onChange={v=>setCf({...cf,telefono:v})}/>
+              <FField label="Email" type="email" value={cf.email} onChange={v=>setCf({...cf,email:v})}/>
+              <FField label="Fecha de nacimiento" type="date" value={cf.nacimiento} onChange={v=>setCf({...cf,nacimiento:v})}/>
+            </div>
+            <Lbl>Certificación</Lbl>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+              <div><label style={LS}>Agencia</label><select style={SS} value={cf.agencia} onChange={e=>setCf({...cf,agencia:e.target.value})}>{AGENCIES.map(a=><option key={a} value={a}>{a}</option>)}</select></div>
+              <div><label style={LS}>Nivel</label><select style={SS} value={cf.certificacion} onChange={e=>setCf({...cf,certificacion:e.target.value})}>{CERTS.map(l=><option key={l} value={l}>{l}</option>)}</select></div>
+              <FField label="Número de buzo / Cert ID" placeholder="Ej. PADI-1234567" value={cf.numero_buzo} onChange={v=>setCf({...cf,numero_buzo:v})}/>
+            </div>
+            <label style={LS}>Notas</label>
+            <textarea style={{...IS,resize:"vertical",background:"#f8fafc"}} rows={3} value={cf.notas} onChange={e=>setCf({...cf,notas:e.target.value})}/>
+            <div style={{display:"flex",gap:12,marginTop:24}}>
+              <button style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>saveCliente(false)}>{cid?"Guardar Cambios":"Registrar Cliente"}</button>
+              <button style={{...Btn,background:"#e2e8f0",color:"#475569",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>{setCf(newCliente());setCid(null);setDup(null);setView("lista");}}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── CLIENTE DETALLE ── */}
+        {sec==="clientes"&&view==="clienteDetalle"&&cDet&&(()=>{
+          const c=clientes.find(x=>x.id===cDet.id)||cDet, h=hist(c.id);
+          return (<>
+            <button style={{background:"none",border:"none",color:"#0369a1",fontWeight:600,fontSize:14,cursor:"pointer",marginBottom:12}} onClick={()=>setView("lista")}>← Volver</button>
+            <div style={Card}>
+              <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20,flexWrap:"wrap"}}>
+                <div style={{width:64,height:64,borderRadius:"50%",background:"#0c4a6e",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,fontWeight:700}}>{c.nombre.charAt(0).toUpperCase()}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#0369a1",letterSpacing:"1px",marginBottom:2}}>{cNum(c.num_cliente)}</div>
+                  <div style={{fontSize:22,fontWeight:800,color:"#0c4a6e"}}>{c.nombre} {c.apellido}</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
+                    <span style={{background:"#e0f2fe",color:"#0369a1",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>{c.agencia}</span>
+                    <span style={{background:"#e0f2fe",color:"#0369a1",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>{c.certificacion}</span>
+                    {c.numero_buzo&&<span style={{background:"#fef3c7",color:"#92400e",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>#{c.numero_buzo}</span>}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editCliente(c)}>✏️ Editar</button>
+                  <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delCliente(c.id)}>🗑️ Eliminar</button>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                {c.telefono&&<div style={{fontSize:14,color:"#475569"}}><b>📱</b> {c.telefono}</div>}
+                {c.email&&<div style={{fontSize:14,color:"#475569"}}><b>✉️</b> {c.email}</div>}
+                {c.nacimiento&&<div style={{fontSize:14,color:"#475569"}}><b>🎂</b> {c.nacimiento}</div>}
+                {c.notas&&<div style={{gridColumn:"1/-1",fontSize:14,color:"#475569"}}><b>📝</b> {c.notas}</div>}
+              </div>
+            </div>
+            <div style={Card}>
+              <h3 style={{fontSize:16,fontWeight:700,color:"#0c4a6e",marginBottom:16}}>🗓️ Historial <span style={{fontWeight:400,fontSize:13,color:"#64748b"}}>({h.length} salida{h.length!==1?"s":""})</span></h3>
+              {h.length===0?<div style={{color:"#94a3b8",fontSize:14}}>Sin salidas registradas.</div>
+              :h.map(s=>{
+                const sc=STATUS[s.status], gC=s.grupos?.find(g=>g.clientes?.some(cl=>cl.clienteId===c.id)), cEG=gC?.clientes?.find(cl=>cl.clienteId===c.id), gU=GEAR.filter(g=>cEG?.gear?.[g]);
+                return (
+                  <div key={s.id} style={{background:"#fff",borderRadius:10,padding:12,marginBottom:8,boxShadow:"0 1px 4px rgba(0,0,0,0.05)",borderLeft:`4px solid ${sc.dot}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+                      <div>
+                        <span style={{fontWeight:700}}>🚤 {embN(s.embarcacion_id)}</span>
+                        <span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>{s.fecha} · {s.hora}</span>
+                        {gC&&<span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>👤 {gC.instructor}</span>}
+                      </div>
+                      <span style={{fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:6,background:sc.bg,color:sc.text}}>{sc.label}</span>
+                    </div>
+                    {gU.length>0&&<div style={{marginTop:6,display:"flex",gap:4,flexWrap:"wrap"}}>{gU.map(g=><span key={g} style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600}}>{g}</span>)}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </>);
+        })()}
+
+        {/* ── CATÁLOGO ── */}
+        {sec==="catalogo"&&view==="catalogo"&&(
+          <div>
+            <div style={{display:"flex",gap:8,marginBottom:20}}>
+              {[["embs","🚤 Embarcaciones"],["caps","⚓ Capitanes"]].map(([t,l])=>(
+                <button key={t} onClick={()=>setTab(t)} style={{...Btn,background:tab===t?"#0c4a6e":"#f1f5f9",color:tab===t?"#fff":"#475569",padding:"9px 16px"}}>{l}</button>
+              ))}
+            </div>
+            {tab==="embs"&&(
+              <CatSec title="🚤 Embarcaciones" count={embs.length} onNew={()=>{setEmbF(newEmb());setEmbId(null);setView("embForm");}}>
+                {embs.length===0?<Empty icon="Emb" txt="Sin embarcaciones registradas."/>:(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+                    {embs.map(e=>(
+                      <div key={e.id} style={{...Card,display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{width:44,height:44,borderRadius:"50%",background:"#0369a1",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🚤</div>
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:700,fontSize:15}}>{e.nombre}</div>
+                          {e.matricula&&<div style={{fontSize:12,color:"#64748b"}}>📋 {e.matricula}</div>}
+                          {e.capacidad&&<div style={{fontSize:12,color:"#64748b"}}>👥 Cap. {e.capacidad} pax</div>}
+                        </div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{setEmbF({nombre:e.nombre,matricula:e.matricula||"",capacidad:e.capacidad||"",notas:e.notas||""});setEmbId(e.id);setView("embForm");}}>✏️</button>
+                          <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delCat("embarcaciones",e.id,setEmbs,"Embarcación")}>🗑️</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CatSec>
+            )}
+            {tab==="caps"&&(
+              <CatSec title="⚓ Capitanes" count={caps.length} onNew={()=>{setCapF(newCap());setCapId(null);setView("capForm");}}>
+                {caps.length===0?<Empty icon="Cap" txt="Sin capitanes registrados."/>:(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+                    {caps.map(c=>(
+                      <div key={c.id} style={{...Card,display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{width:44,height:44,borderRadius:"50%",background:"#0c4a6e",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700}}>{c.nombre.charAt(0).toUpperCase()}</div>
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:700,fontSize:15}}>{fn(c)}</div>
+                          {c.telefono&&<div style={{fontSize:12,color:"#64748b"}}>📱 {c.telefono}</div>}
+                        </div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{setCapF({nombre:c.nombre,apellido:c.apellido||"",telefono:c.telefono||"",notas:c.notas||""});setCapId(c.id);setView("capForm");}}>✏️</button>
+                          <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delCat("capitanes",c.id,setCaps,"Capitán")}>🗑️</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CatSec>
+            )}
+          </div>
+        )}
+
+        {sec==="catalogo"&&view==="embForm"&&(
+          <div style={Card}>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{embId?"✏️ Editar Embarcación":"🚤 Nueva Embarcación"}</h2>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              <div style={{gridColumn:"1/-1"}}><FField label="Nombre *" placeholder="Ej. Nautilus I" value={embF.nombre} onChange={v=>setEmbF({...embF,nombre:v})}/></div>
+              <FField label="Matrícula" placeholder="Ej. MX-1234" value={embF.matricula||""} onChange={v=>setEmbF({...embF,matricula:v})}/>
+              <FField label="Capacidad (pax)" type="number" value={embF.capacidad||""} onChange={v=>setEmbF({...embF,capacidad:v})}/>
+              <div style={{gridColumn:"1/-1"}}><label style={LS}>Notas</label><textarea style={{...IS,resize:"vertical",background:"#f8fafc"}} rows={2} value={embF.notas||""} onChange={e=>setEmbF({...embF,notas:e.target.value})}/></div>
+            </div>
+            <div style={{display:"flex",gap:12,marginTop:20}}>
+              <button style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>saveCat("embarcaciones",embF,embId,setEmbs,()=>{setEmbF(newEmb());setEmbId(null);},"Embarcación")}>{embId?"Guardar":"Registrar"}</button>
+              <button style={{...Btn,background:"#e2e8f0",color:"#475569",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>setView("catalogo")}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {sec==="catalogo"&&view==="capForm"&&(
+          <div style={Card}>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{capId?"✏️ Editar Capitán":"⚓ Nuevo Capitán"}</h2>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              <FField label="Nombre *" value={capF.nombre} onChange={v=>setCapF({...capF,nombre:v})}/>
+              <FField label="Apellido" value={capF.apellido} onChange={v=>setCapF({...capF,apellido:v})}/>
+              <FField label="Teléfono" value={capF.telefono} onChange={v=>setCapF({...capF,telefono:v})}/>
+            </div>
+            <div style={{display:"flex",gap:12,marginTop:20}}>
+              <button style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>saveCat("capitanes",capF,capId,setCaps,()=>{setCapF(newCap());setCapId(null);},"Capitán")}>{capId?"Guardar":"Registrar"}</button>
+              <button style={{...Btn,background:"#e2e8f0",color:"#475569",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>setView("catalogo")}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+      </main>
+      {toast&&<div style={{position:"fixed",bottom:24,right:24,color:"#fff",padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:600,boxShadow:"0 4px 12px rgba(0,0,0,0.2)",zIndex:1000,background:toast.type==="error"?"#b91c1c":"#15803d"}}>{toast.msg}</div>}
+    </div>
+  );
+}
+
+// Selector de clientes
+function CliSelector({disp,onSel,gc}){
+  const [open,setOpen]=useState(false);
+  const [q,setQ]=useState("");
+  const ref=useRef();
+  useEffect(()=>{ const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);}; document.addEventListener("mousedown",h); return()=>document.removeEventListener("mousedown",h); },[]);
+  const lista=disp.filter(c=>!q||`${c.nombre} ${c.apellido}`.toLowerCase().includes(q.toLowerCase())||`C-${String(c.num_cliente).padStart(4,"0")}`.includes(q));
+  return (
+    <div ref={ref} style={{position:"relative"}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",background:gc.badgeBg,color:gc.badge}}>+ Agregar cliente</button>
+      {open&&(
+        <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",background:"#fff",borderRadius:10,boxShadow:"0 4px 20px rgba(0,0,0,0.15)",padding:10,minWidth:260,zIndex:100,border:"1px solid #e2e8f0"}}>
+          <input autoFocus style={{...IS,marginBottom:8,fontSize:13}} placeholder="Buscar nombre o #cliente..." value={q} onChange={e=>setQ(e.target.value)}/>
+          {lista.length===0?<div style={{fontSize:13,color:"#94a3b8",padding:"6px 0"}}>{disp.length===0?"Todos asignados.":"Sin resultados."}</div>
+          :lista.map(c=>(
+            <div key={c.id} style={{padding:"8px 10px",borderRadius:8,cursor:"pointer",marginBottom:2}} onClick={()=>{onSel(c);setOpen(false);setQ("");}}>
+              <div style={{display:"flex",justifyContent:"space-between"}}>
+                <span style={{fontWeight:600,fontSize:14}}>{c.nombre} {c.apellido}</span>
+                <span style={{fontSize:11,color:"#0369a1",fontWeight:700}}>C-{String(c.num_cliente).padStart(4,"0")}</span>
+              </div>
+              <div style={{fontSize:11,color:"#94a3b8"}}>{c.agencia} · {c.certificacion}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CatSec({title,count,onNew,children}){
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:20,fontWeight:700,color:"#0c4a6e"}}>{title} <span style={{fontSize:13,fontWeight:400,color:"#64748b"}}>{count} registrados</span></div>
+        <button onClick={onNew} style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}}>+ Nuevo</button>
+      </div>
+      {children}
+    </div>
+  );
+}
+function Empty({icon,txt}){ return <div style={{textAlign:"center",padding:"60px 20px",background:"#fff",borderRadius:14,boxShadow:"0 2px 12px rgba(0,0,0,0.06)"}}><div style={{fontSize:48}}>{icon}</div><div style={{color:"#94a3b8",marginTop:8}}>{txt}</div></div>; }
+function FField({label,type="text",value,onChange,placeholder}){ return <div><label style={LS}>{label}</label><input type={type} style={IS} value={value||""} placeholder={placeholder||""} onChange={e=>onChange(e.target.value)}/></div>; }
+function Lbl({children}){ return <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>{children}</div>; }
+
+const Card = {background:"#fff",borderRadius:14,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.08)",marginBottom:20};
+const Btn  = {border:"none",borderRadius:8,padding:"8px 14px",fontSize:13,fontWeight:600,cursor:"pointer"};
+const IS   = {width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #cbd5e1",fontSize:14,outline:"none",boxSizing:"border-box",background:"#fff"};
+const SS   = {width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #cbd5e1",fontSize:14,outline:"none",background:"#fff"};
+const LS   = {display:"block",fontSize:13,fontWeight:600,color:"#475569",marginBottom:5};
+const Chip = {background:"#f1f5f9",color:"#475569",borderRadius:20,padding:"4px 10px",fontSize:12,fontWeight:500};
+const Badge= {display:"inline-block",fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20};
+const TH   = {padding:"5px 8px",fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",textAlign:"center",borderBottom:"1px solid #e2e8f0"};
+const TD   = {padding:"6px 8px",fontSize:13,verticalAlign:"middle"};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
