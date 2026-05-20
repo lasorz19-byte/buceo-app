@@ -153,7 +153,7 @@ function App() {
     } else {
       const n=await nextNum("salidas");
       const {data,error}=await db.from("salidas").insert({...p,num_salida:n}).select().single();
-      if(error){toast_("Error al registrar.","error");return;}
+      if(error){toast_("Error: "+error.message,"error");console.error("Supabase error:",error);return;}
       setSalidas(x=>[data,...x]);
       toast_("Salida registrada.");
     }
