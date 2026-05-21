@@ -44,26 +44,34 @@ const GC = [
   { border:"#8b5cf6", bg:"#faf5ff", badge:"#5b21b6", badgeBg:"#ede9fe" },
   { border:"#ef4444", bg:"#fff1f2", badge:"#991b1b", badgeBg:"#fee2e2" },
 ];
-const GC_EXT = { border:"#64748b", bg:"#f8fafc", badge:"#334155", badgeBg:"#e2e8f0" };
+const GC_EXT  = { border:"#64748b", bg:"#f8fafc", badge:"#334155", badgeBg:"#e2e8f0" };
+const GC_STAF = { border:"#8b5cf6", bg:"#faf5ff", badge:"#5b21b6", badgeBg:"#ede9fe" };
 
-const newGrupo    = () => ({ id:Date.now()+Math.random(), instructorId:"", instructorNombre:"", clientes:[] });
-const newGrupoExt = () => ({ id:Date.now()+Math.random(), nombreGrupo:"", dmExterno:"", pax:1, equipo:[] });
-const newSalida   = () => ({ fecha:"", hora:"", embarcacion_id:"", capitan_id:"", grupos:[], gruposExternos:[], notas:"" });
-const newCliente  = () => ({ nombre:"", apellido:"", telefono:"", email:"", agencia:"PADI", certificacion:"OW", numero_buzo:"", nacimiento:"", notas:"" });
-const newStaff    = () => ({ nombre:"", apellido:"", roles:[], telefono:"", email:"", notas:"" });
-const newEmb      = () => ({ nombre:"", matricula:"", capacidad:"", notas:"" });
+const newGrupo      = () => ({ id:Date.now()+Math.random(), instructorId:"", instructorNombre:"", clientes:[] });
+const newGrupoExt   = () => ({ id:Date.now()+Math.random(), nombreGrupo:"", dmExterno:"", pax:1, equipo:[] });
+const newGrupoStaff = () => ({ id:Date.now()+Math.random(), staffId:"", staffNombre:"", agencia:"", pax:1 });
+const newSalida     = () => ({ fecha:"", hora:"", embarcacion_id:"", capitan_id:"", grupos:[], gruposExternos:[], gruposStaff:[], notas:"" });
+const newSalidaCenote = () => ({ fecha:"", hora:"", cenote_id:"", grupos:[], notas:"" });
+const newCliente    = () => ({ nombre:"", apellido:"", telefono:"", email:"", agencia:"PADI", certificacion:"OW", numero_buzo:"", nacimiento:"", notas:"" });
+const newStaff      = () => ({ nombre:"", apellido:"", roles:[], telefono:"", email:"", notas:"" });
+const newEmb        = () => ({ nombre:"", matricula:"", capacidad:"", notas:"" });
+const newCenote     = () => ({ nombre:"", ubicacion:"", notas:"" });
 
 const fn   = c => (c.nombre + " " + (c.apellido||"")).trim();
 const cNum = n => "C-" + String(n).padStart(4,"0");
 const sNum = n => "S-" + String(n).padStart(4,"0");
+const scNum= n => "SC-"+ String(n).padStart(4,"0");
 
 function App() {
-  const [salidas,  setSalidas]  = useState([]);
-  const [clientes, setClientes] = useState([]);
-  const [staff,    setStaff]    = useState([]);
-  const [embs,     setEmbs]     = useState([]);
-  const [loading,  setLoading]  = useState(true);
+  const [salidas,       setSalidas]       = useState([]);
+  const [salidasCenote, setSalidasCenote] = useState([]);
+  const [clientes,      setClientes]      = useState([]);
+  const [staff,         setStaff]         = useState([]);
+  const [embs,          setEmbs]          = useState([]);
+  const [cenotes,       setCenotes]       = useState([]);
+  const [loading,       setLoading]       = useState(true);
 
+  // Salidas bote
   const [sf,   setSf]   = useState(newSalida());
   const [ss,   setSs]   = useState("programada");
   const [sid,  setSid]  = useState(null);
@@ -71,16 +79,28 @@ function App() {
   const [sFil, setSFil] = useState("todas");
   const [sQ,   setSQ]   = useState("");
 
+  // Salidas cenote
+  const [scf,   setScf]   = useState(newSalidaCenote());
+  const [scss,  setScss]  = useState("programada");
+  const [scid,  setScid]  = useState(null);
+  const [scExp, setScExp] = useState({});
+  const [scFil, setScFil] = useState("todas");
+  const [scQ,   setScQ]   = useState("");
+
+  // Clientes
   const [cf,   setCf]   = useState(newCliente());
   const [cid,  setCid]  = useState(null);
   const [cQ,   setCQ]   = useState("");
   const [cDet, setCDet] = useState(null);
   const [dup,  setDup]  = useState(null);
 
-  const [stf,   setStf]   = useState(newStaff());
-  const [stfId, setStfId] = useState(null);
-  const [embF,  setEmbF]  = useState(newEmb());
-  const [embId, setEmbId] = useState(null);
+  // Catalogo
+  const [stf,      setStf]      = useState(newStaff());
+  const [stfId,    setStfId]    = useState(null);
+  const [embF,     setEmbF]     = useState(newEmb());
+  const [embId,    setEmbId]    = useState(null);
+  const [cenoteF,  setCenoteF]  = useState(newCenote());
+  const [cenoteId, setCenoteId] = useState(null);
 
   const [calY, setCalY] = useState(new Date().getFullYear());
   const [calM, setCalM] = useState(new Date().getMonth());
@@ -94,16 +114,20 @@ function App() {
 
   const load = async () => {
     setLoading(true);
-    const [s,c,st,e] = await Promise.all([
+    const [s,sc,c,st,e,cn] = await Promise.all([
       db.from("salidas").select("*").order("created_at",{ascending:false}),
+      db.from("salidas_cenote").select("*").order("created_at",{ascending:false}),
       db.from("clientes").select("*").order("apellido"),
       db.from("staff").select("*").order("nombre"),
       db.from("embarcaciones").select("*").order("nombre"),
+      db.from("cenotes").select("*").order("nombre"),
     ]);
     if(s.data)  setSalidas(s.data);
+    if(sc.data) setSalidasCenote(sc.data);
     if(c.data)  setClientes(c.data);
     if(st.data) setStaff(st.data);
     if(e.data)  setEmbs(e.data);
+    if(cn.data) setCenotes(cn.data);
     setLoading(false);
   };
 
@@ -117,16 +141,24 @@ function App() {
   const toast_ = (msg,type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),2800); };
   const go     = (s,v) => { setSec(s); setView(v); setCalD(null); };
 
-  const embN  = id => embs.find(x=>x.id===id)?.nombre||"--";
-  const staffN= id => { const s=staff.find(x=>x.id===id); return s?fn(s):"--"; };
-  const tPax  = s  => {
-    const prop = (s.grupos||[]).reduce((a,g)=>a+(g.clientes?.length||0),0);
-    const ext  = (s.gruposExternos||[]).reduce((a,g)=>a+(Number(g.pax)||0),0);
-    return prop+ext;
-  };
-  const hist = cid => salidas.filter(s=>(s.grupos||[]).some(g=>(g.clientes||[]).some(c=>c.clienteId===cid)));
+  const embN   = id => embs.find(x=>x.id===id)?.nombre||"--";
+  const staffN = id => { const s=staff.find(x=>x.id===id); return s?fn(s):"--"; };
+  const cenoteN= id => cenotes.find(x=>x.id===id)?.nombre||"--";
 
-  // Grupos propios
+  const tPaxBote = s => {
+    const p=(s.grupos||[]).reduce((a,g)=>a+(g.clientes?.length||0),0);
+    const e=(s.gruposExternos||[]).reduce((a,g)=>a+(Number(g.pax)||0),0);
+    const st=(s.gruposStaff||[]).reduce((a,g)=>a+(Number(g.pax)||0),0);
+    return p+e+st;
+  };
+  const tPaxCenote = s => (s.grupos||[]).reduce((a,g)=>a+(g.clientes?.length||0),0);
+  const hist = cid => {
+    const b=salidas.filter(s=>(s.grupos||[]).some(g=>(g.clientes||[]).some(c=>c.clienteId===cid)));
+    const c=salidasCenote.filter(s=>(s.grupos||[]).some(g=>(g.clientes||[]).some(c=>c.clienteId===cid)));
+    return {bote:b, cenote:c};
+  };
+
+  // Grupos bote propios
   const addGrupo = () => setSf(s=>({...s,grupos:[...s.grupos,newGrupo()]}));
   const remGrupo = gi => setSf(s=>({...s,grupos:s.grupos.filter((_,i)=>i!==gi)}));
   const updGrupo = (gi,f,v) => setSf(s=>({...s,grupos:s.grupos.map((g,i)=>i===gi?{...g,[f]:v}:g)}));
@@ -135,33 +167,70 @@ function App() {
   const togGear  = (gi,ci,gear) => setSf(s=>({...s,grupos:s.grupos.map((g,i)=>i!==gi?g:{...g,clientes:g.clientes.map((c,j)=>j!==ci?c:{...c,gear:{...(c.gear||{}),[gear]:!(c.gear?.[gear])}})})}));
   const avail    = gi => { const used=new Set((sf.grupos[gi]?.clientes||[]).map(c=>c.clienteId)); return clientes.filter(c=>!used.has(c.id)); };
 
-  // Grupos externos
+  // Grupos externos bote
   const addGrupoExt = () => setSf(s=>({...s,gruposExternos:[...(s.gruposExternos||[]),newGrupoExt()]}));
   const remGrupoExt = gi => setSf(s=>({...s,gruposExternos:(s.gruposExternos||[]).filter((_,i)=>i!==gi)}));
   const updGrupoExt = (gi,f,v) => setSf(s=>({...s,gruposExternos:(s.gruposExternos||[]).map((g,i)=>i===gi?{...g,[f]:v}:g)}));
   const togGearExt  = (gi,gear) => setSf(s=>({...s,gruposExternos:(s.gruposExternos||[]).map((g,i)=>i!==gi?g:{...g,equipo:(g.equipo||[]).includes(gear)?(g.equipo||[]).filter(x=>x!==gear):[...(g.equipo||[]),gear]})}));
 
-  // Salidas CRUD
+  // Grupos staff+agencia bote
+  const addGrupoStaff = () => setSf(s=>({...s,gruposStaff:[...(s.gruposStaff||[]),newGrupoStaff()]}));
+  const remGrupoStaff = gi => setSf(s=>({...s,gruposStaff:(s.gruposStaff||[]).filter((_,i)=>i!==gi)}));
+  const updGrupoStaff = (gi,f,v) => setSf(s=>({...s,gruposStaff:(s.gruposStaff||[]).map((g,i)=>i===gi?{...g,[f]:v}:g)}));
+
+  // Grupos cenote
+  const addGrupoCenote = () => setScf(s=>({...s,grupos:[...s.grupos,newGrupo()]}));
+  const remGrupoCenote = gi => setScf(s=>({...s,grupos:s.grupos.filter((_,i)=>i!==gi)}));
+  const updGrupoCenote = (gi,f,v) => setScf(s=>({...s,grupos:s.grupos.map((g,i)=>i===gi?{...g,[f]:v}:g)}));
+  const addCliCenote   = (gi,cl) => setScf(s=>({...s,grupos:s.grupos.map((g,i)=>i!==gi?g:{...g,clientes:[...(g.clientes||[]),{clienteId:cl.id,nombre:fn(cl),gear:{}}]})}));
+  const remCliCenote   = (gi,ci) => setScf(s=>({...s,grupos:s.grupos.map((g,i)=>i!==gi?g:{...g,clientes:g.clientes.filter((_,j)=>j!==ci)})}));
+  const togGearCenote  = (gi,ci,gear) => setScf(s=>({...s,grupos:s.grupos.map((g,i)=>i!==gi?g:{...g,clientes:g.clientes.map((c,j)=>j!==ci?c:{...c,gear:{...(c.gear||{}),[gear]:!(c.gear?.[gear])}})})}));
+  const availCenote    = gi => { const used=new Set((scf.grupos[gi]?.clientes||[]).map(c=>c.clienteId)); return clientes.filter(c=>!used.has(c.id)); };
+
+  // Salidas bote CRUD
   const saveSalida = async () => {
     if(!sf.fecha||!sf.hora){toast_("Completa fecha y hora.","error");return;}
-    const p = { fecha:sf.fecha, hora:sf.hora, embarcacion_id:sf.embarcacion_id||null, capitan_id:sf.capitan_id||null, grupos:sf.grupos, gruposExternos:sf.gruposExternos||[], notas:sf.notas||null, status:ss };
+    const p = { fecha:sf.fecha, hora:sf.hora, embarcacion_id:sf.embarcacion_id||null, capitan_id:sf.capitan_id||null, grupos:sf.grupos, gruposExternos:sf.gruposExternos||[], gruposStaff:sf.gruposStaff||[], notas:sf.notas||null, status:ss };
     if(sid){
       const {error}=await db.from("salidas").update(p).eq("id",sid);
-      if(error){toast_("Error al actualizar.","error");return;}
+      if(error){toast_("Error: "+error.message,"error");return;}
       setSalidas(x=>x.map(s=>s.id===sid?{...s,...p}:s));
       toast_("Salida actualizada.");
     } else {
       const n=await nextNum("salidas");
       const {data,error}=await db.from("salidas").insert({...p,num_salida:n}).select().single();
-      if(error){toast_("Error: "+error.message,"error");console.error("Supabase error:",error);return;}
+      if(error){toast_("Error: "+error.message,"error");return;}
       setSalidas(x=>[data,...x]);
       toast_("Salida registrada.");
     }
     setSf(newSalida()); setSs("programada"); setSid(null); setView("lista");
   };
-  const editSalida = s => { setSf({fecha:s.fecha,hora:s.hora,embarcacion_id:s.embarcacion_id||"",capitan_id:s.capitan_id||"",grupos:s.grupos||[],gruposExternos:s.gruposExternos||[],notas:s.notas||""}); setSs(s.status); setSid(s.id); setView("nueva"); };
+  const editSalida = s => { setSf({fecha:s.fecha,hora:s.hora,embarcacion_id:s.embarcacion_id||"",capitan_id:s.capitan_id||"",grupos:s.grupos||[],gruposExternos:s.gruposExternos||[],gruposStaff:s.gruposStaff||[],notas:s.notas||""}); setSs(s.status); setSid(s.id); setView("nueva"); };
   const delSalida  = async id => { await db.from("salidas").delete().eq("id",id); setSalidas(x=>x.filter(s=>s.id!==id)); toast_("Salida eliminada.","error"); };
   const chgStatus  = async (id,ns) => { await db.from("salidas").update({status:ns}).eq("id",id); setSalidas(x=>x.map(s=>s.id===id?{...s,status:ns}:s)); };
+
+  // Salidas cenote CRUD
+  const saveSalidaCenote = async () => {
+    if(!scf.fecha||!scf.hora){toast_("Completa fecha y hora.","error");return;}
+    if(!scf.cenote_id){toast_("Selecciona un cenote.","error");return;}
+    const p = { fecha:scf.fecha, hora:scf.hora, cenote_id:scf.cenote_id, grupos:scf.grupos, notas:scf.notas||null, status:scss };
+    if(scid){
+      const {error}=await db.from("salidas_cenote").update(p).eq("id",scid);
+      if(error){toast_("Error: "+error.message,"error");return;}
+      setSalidasCenote(x=>x.map(s=>s.id===scid?{...s,...p}:s));
+      toast_("Salida cenote actualizada.");
+    } else {
+      const n=await nextNum("cenotes");
+      const {data,error}=await db.from("salidas_cenote").insert({...p,num_salida:n}).select().single();
+      if(error){toast_("Error: "+error.message,"error");return;}
+      setSalidasCenote(x=>[data,...x]);
+      toast_("Salida cenote registrada.");
+    }
+    setScf(newSalidaCenote()); setScss("programada"); setScid(null); setView("listaCenote");
+  };
+  const editSalidaCenote = s => { setScf({fecha:s.fecha,hora:s.hora,cenote_id:s.cenote_id||"",grupos:s.grupos||[],notas:s.notas||""}); setScss(s.status); setScid(s.id); setView("nuevaCenote"); };
+  const delSalidaCenote  = async id => { await db.from("salidas_cenote").delete().eq("id",id); setSalidasCenote(x=>x.filter(s=>s.id!==id)); toast_("Salida eliminada.","error"); };
+  const chgStatusCenote  = async (id,ns) => { await db.from("salidas_cenote").update({status:ns}).eq("id",id); setSalidasCenote(x=>x.map(s=>s.id===id?{...s,status:ns}:s)); };
 
   // Clientes CRUD
   const checkDup = (form,editId) => {
@@ -182,7 +251,7 @@ function App() {
       const {data,error}=await db.from("clientes").insert({...cf,num_cliente:n}).select().single();
       if(error){toast_("Error.","error");return;}
       setClientes(x=>[data,...x]);
-      toast_("Cliente registrado - " + cNum(n));
+      toast_("Cliente registrado - "+cNum(n));
     }
     setCf(newCliente()); setCid(null); setView("lista");
   };
@@ -228,20 +297,45 @@ function App() {
   };
   const delEmb = async id => { await db.from("embarcaciones").delete().eq("id",id); setEmbs(x=>x.filter(e=>e.id!==id)); toast_("Embarcacion eliminada.","error"); };
 
+  // Cenotes CRUD
+  const saveCenote = async () => {
+    if(!cenoteF.nombre.trim()){toast_("Nombre obligatorio.","error");return;}
+    if(cenoteId){
+      const {error}=await db.from("cenotes").update(cenoteF).eq("id",cenoteId);
+      if(error){toast_("Error.","error");return;}
+      setCenotes(x=>x.map(c=>c.id===cenoteId?{...c,...cenoteF}:c));
+      toast_("Cenote actualizado.");
+    } else {
+      const {data,error}=await db.from("cenotes").insert(cenoteF).select().single();
+      if(error){toast_("Error.","error");return;}
+      setCenotes(x=>[data,...x]);
+      toast_("Cenote registrado.");
+    }
+    setCenoteF(newCenote()); setCenoteId(null); setView("catalogo");
+  };
+  const delCenote = async id => { await db.from("cenotes").delete().eq("id",id); setCenotes(x=>x.filter(c=>c.id!==id)); toast_("Cenote eliminado.","error"); };
+
   // Excel
   const exportXLS = () => {
-    if(!salidas.length){toast_("No hay salidas.","error");return;}
+    if(!salidas.length&&!salidasCenote.length){toast_("No hay salidas.","error");return;}
     const rows=[];
     salidas.forEach(s=>{
-      (s.grupos||[]).forEach(g=>{
-        (g.clientes||[]).forEach(c=>{
-          const cl=clientes.find(x=>x.id===c.clienteId)||{};
-          rows.push({"#Salida":sNum(s.num_salida||0),"Tipo":"Propio","Fecha":s.fecha,"Hora":s.hora,"Embarcacion":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Instructor/DM":g.instructorNombre||"","Grupo/Agencia":"","#Cliente":cl.num_cliente?cNum(cl.num_cliente):"","Nombre":cl.nombre||"","Apellido":cl.apellido||"","Pax":1,...Object.fromEntries(GEAR.map(g=>[g,c.gear?.[g]?"si":""])),"Estado":STATUS[s.status]?.label||s.status});
-        });
-      });
+      (s.grupos||[]).forEach(g=>(g.clientes||[]).forEach(c=>{
+        const cl=clientes.find(x=>x.id===c.clienteId)||{};
+        rows.push({"Tipo":"Bote","#":sNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Staff":g.instructorNombre||"","Grupo":"Propio","Agencia":"","#Cliente":cl.num_cliente?cNum(cl.num_cliente):"","Nombre":cl.nombre||"","Apellido":cl.apellido||"","Pax":1,...Object.fromEntries(GEAR.map(g=>[g,c.gear?.[g]?"si":""])),"Estado":STATUS[s.status]?.label||s.status});
+      }));
       (s.gruposExternos||[]).forEach(g=>{
-        rows.push({"#Salida":sNum(s.num_salida||0),"Tipo":"Externo","Fecha":s.fecha,"Hora":s.hora,"Embarcacion":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Instructor/DM":g.dmExterno||"","Grupo/Agencia":g.nombreGrupo||"","#Cliente":"","Nombre":"","Apellido":"","Pax":g.pax,...Object.fromEntries(GEAR.map(ge=>[ge,(g.equipo||[]).includes(ge)?"si":""])),"Estado":STATUS[s.status]?.label||s.status});
+        rows.push({"Tipo":"Bote","#":sNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Staff":g.dmExterno||"","Grupo":"Externo","Agencia":g.nombreGrupo||"","#Cliente":"","Nombre":"","Apellido":"","Pax":g.pax,...Object.fromEntries(GEAR.map(ge=>[ge,(g.equipo||[]).includes(ge)?"si":""])),"Estado":STATUS[s.status]?.label||s.status});
       });
+      (s.gruposStaff||[]).forEach(g=>{
+        rows.push({"Tipo":"Bote","#":sNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Staff":g.staffNombre||"","Grupo":"Staff+Agencia","Agencia":g.agencia||"","#Cliente":"","Nombre":"","Apellido":"","Pax":g.pax,...Object.fromEntries(GEAR.map(g=>[g,""])),"Estado":STATUS[s.status]?.label||s.status});
+      });
+    });
+    salidasCenote.forEach(s=>{
+      (s.grupos||[]).forEach(g=>(g.clientes||[]).forEach(c=>{
+        const cl=clientes.find(x=>x.id===c.clienteId)||{};
+        rows.push({"Tipo":"Cenote","#":scNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":cenoteN(s.cenote_id),"Capitan":"","Staff":g.instructorNombre||"","Grupo":"Propio","Agencia":"","#Cliente":cl.num_cliente?cNum(cl.num_cliente):"","Nombre":cl.nombre||"","Apellido":cl.apellido||"","Pax":1,...Object.fromEntries(GEAR.map(g=>[g,c.gear?.[g]?"si":""])),"Estado":STATUS[s.status]?.label||s.status});
+      }));
     });
     const ws=XLSX.utils.json_to_sheet(rows);
     const wb=XLSX.utils.book_new();
@@ -250,9 +344,10 @@ function App() {
     toast_("Excel descargado");
   };
 
-  // Calendar
+  // Calendar (bote)
   const byDate={};
-  salidas.forEach(s=>{ if(!byDate[s.fecha])byDate[s.fecha]=[]; byDate[s.fecha].push(s); });
+  salidas.forEach(s=>{ if(!byDate[s.fecha])byDate[s.fecha]=[]; byDate[s.fecha].push({...s,tipo:"bote"}); });
+  salidasCenote.forEach(s=>{ if(!byDate[s.fecha])byDate[s.fecha]=[]; byDate[s.fecha].push({...s,tipo:"cenote"}); });
   const p2   = n => String(n).padStart(2,"0");
   const dKey = d => calY+"-"+p2(calM+1)+"-"+p2(d);
   const fd   = new Date(calY,calM,1).getDay();
@@ -262,11 +357,18 @@ function App() {
   const fSal = salidas.filter(s=>{
     const ok=sFil==="todas"||s.status===sFil;
     const q=sQ.toLowerCase();
-    const t=[embN(s.embarcacion_id),staffN(s.capitan_id),s.fecha,...(s.grupos||[]).flatMap(g=>[g.instructorNombre||"",...(g.clientes||[]).map(c=>c.nombre)]),...(s.gruposExternos||[]).flatMap(g=>[g.nombreGrupo||"",g.dmExterno||""])].join(" ").toLowerCase();
+    const t=[embN(s.embarcacion_id),staffN(s.capitan_id),s.fecha,...(s.grupos||[]).flatMap(g=>[g.instructorNombre||"",...(g.clientes||[]).map(c=>c.nombre)]),...(s.gruposExternos||[]).flatMap(g=>[g.nombreGrupo||"",g.dmExterno||""]),...(s.gruposStaff||[]).flatMap(g=>[g.staffNombre||"",g.agencia||""])].join(" ").toLowerCase();
+    return ok&&(!q||t.includes(q));
+  });
+  const fSalCenote = salidasCenote.filter(s=>{
+    const ok=scFil==="todas"||s.status===scFil;
+    const q=scQ.toLowerCase();
+    const t=[cenoteN(s.cenote_id),s.fecha,...(s.grupos||[]).flatMap(g=>[g.instructorNombre||"",...(g.clientes||[]).map(c=>c.nombre)])].join(" ").toLowerCase();
     return ok&&(!q||t.includes(q));
   });
   const fCli = clientes.filter(c=>{ const q=cQ.toLowerCase(); return !q||[c.nombre,c.apellido,c.email,c.num_cliente?cNum(c.num_cliente):""].join(" ").toLowerCase().includes(q); });
   const cnts = { programada:salidas.filter(s=>s.status==="programada").length, completada:salidas.filter(s=>s.status==="completada").length, cancelada:salidas.filter(s=>s.status==="cancelada").length };
+  const cntsCenote = { programada:salidasCenote.filter(s=>s.status==="programada").length, completada:salidasCenote.filter(s=>s.status==="completada").length, cancelada:salidasCenote.filter(s=>s.status==="cancelada").length };
 
   if(loading) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:16,background:"#f0f9ff"}}>
@@ -274,6 +376,64 @@ function App() {
       <div style={{fontSize:16,fontWeight:600,color:"#0c4a6e"}}>Cargando Bitacora de Buceo...</div>
     </div>
   );
+
+  // ── Componente reutilizable para filas de clientes con equipo ──
+  const GruposPropiosForm = ({grupos, addG, remG, updG, addC, remC, togG, availFn, setSalFn}) => grupos.map((g,gi)=>{
+    const gc=GC[gi%GC.length];
+    return (
+      <div key={g.id} style={{borderRadius:12,padding:16,border:"1px solid #e2e8f0",borderLeft:"4px solid "+gc.border,background:gc.bg,marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <span style={{...Badge,background:gc.badgeBg,color:gc.badge}}>Grupo {gi+1}</span>
+          <button onClick={()=>remG(gi)} style={{...Btn,background:"#fee2e2",color:"#b91c1c",fontSize:12}}>Quitar</button>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={LS}>Instructor / Dive Master</label>
+          <select style={SS} value={g.instructorId||""} onChange={e=>{
+            const s=staff.find(x=>x.id===e.target.value);
+            updG(gi,"instructorId",e.target.value);
+            updG(gi,"instructorNombre",s?fn(s):"");
+          }}>
+            <option value="">-- Seleccionar --</option>
+            {staff.filter(s=>(s.roles||[]).some(r=>r==="Instructor"||r==="Dive Master")).map(s=>(
+              <option key={s.id} value={s.id}>{fn(s)} ({(s.roles||[]).filter(r=>r!=="Capitan").join(", ")})</option>
+            ))}
+          </select>
+        </div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <label style={LS}>Clientes asignados</label>
+          <CliSel disp={availFn(gi)} onSel={c=>addC(gi,c)} gc={gc}/>
+        </div>
+        {(g.clientes||[]).length===0?(
+          <div style={{fontSize:13,color:"#94a3b8",padding:"8px 0"}}>Sin clientes asignados.</div>
+        ):(<>
+          <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0",borderBottom:"1px solid #e2e8f0",marginBottom:6}}>
+            <div style={{flex:1,fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase"}}>Buzo</div>
+            {GEAR.map(g=><div key={g} style={{width:36,textAlign:"center",fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",flexShrink:0}}>{g}</div>)}
+            <div style={{width:28}}/>
+          </div>
+          {(g.clientes||[]).map((c,ci)=>(
+            <div key={ci} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 0",borderBottom:"1px solid rgba(0,0,0,0.04)"}}>
+              <div style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0,background:gc.badgeBg,color:gc.badge}}>{ci+1}</div>
+              <div style={{flex:1,fontSize:14,fontWeight:500,minWidth:100}}>{c.nombre}</div>
+              {GEAR.map(gear=>(
+                <label key={gear} style={{cursor:"pointer",flexShrink:0,width:36,display:"flex",justifyContent:"center"}}>
+                  <input type="checkbox" checked={!!(c.gear?.[gear])} onChange={()=>togG(gi,ci,gear)} style={{display:"none"}}/>
+                  <div style={{width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,cursor:"pointer",background:c.gear?.[gear]?gc.badge:"#fff",border:"2px solid "+(c.gear?.[gear]?gc.badge:"#cbd5e1"),color:"#fff"}}>
+                    {c.gear?.[gear]&&"v"}
+                  </div>
+                </label>
+              ))}
+              <button onClick={()=>remC(gi,ci)} style={{background:"#fff1f2",color:"#b91c1c",border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,cursor:"pointer",fontWeight:700}}>x</button>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:8}}>
+            <span style={{color:"#94a3b8",fontSize:12,marginRight:4}}>Equipo:</span>
+            {GEAR.map(g=><span key={g} style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600}}>{g}</span>)}
+          </div>
+        </>)}
+      </div>
+    );
+  });
 
   return (
     <div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",minHeight:"100vh",background:"#f0f9ff",color:"#1e293b"}}>
@@ -284,30 +444,27 @@ function App() {
             <span style={{fontSize:32}}>🤿</span>
             <div>
               <div style={{fontSize:19,fontWeight:700,color:"#fff"}}>Bitacora de Buceo</div>
-              <div style={{fontSize:11,color:"#7dd3fc"}}>Gestion de salidas - Clientes - Staff</div>
+              <div style={{fontSize:11,color:"#7dd3fc"}}>Embarcaciones - Cenotes - Clientes - Staff</div>
             </div>
           </div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            <div style={{display:"flex",gap:4}}>
-              {[["lista","Salidas"],["calendario","Calendario"]].map(([v,l])=>(
-                <button key={v} onClick={()=>go("salidas",v)} style={{...Btn,background:sec==="salidas"&&view===v?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>{l}</button>
-              ))}
-            </div>
-            <button onClick={()=>go("clientes","lista")} style={{...Btn,background:sec==="clientes"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>Clientes</button>
-            <button onClick={()=>go("catalogo","catalogo")} style={{...Btn,background:sec==="catalogo"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>Catalogo</button>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+            <button onClick={()=>go("salidas","lista")} style={{...Btn,background:sec==="salidas"&&(view==="lista"||view==="nueva")?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>🚤 Bote</button>
+            <button onClick={()=>go("salidas","calendario")} style={{...Btn,background:sec==="salidas"&&view==="calendario"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>📅 Cal.</button>
+            <button onClick={()=>go("cenotes","listaCenote")} style={{...Btn,background:sec==="cenotes"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>💧 Cenote</button>
+            <button onClick={()=>go("clientes","lista")} style={{...Btn,background:sec==="clientes"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>👥 Clientes</button>
+            <button onClick={()=>go("catalogo","catalogo")} style={{...Btn,background:sec==="catalogo"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>📂 Catalogo</button>
             <div style={{width:1,height:28,background:"rgba(255,255,255,0.2)"}}/>
-            {sec==="salidas"&&<>
-              <button onClick={exportXLS} style={{...Btn,background:"#065f46",color:"#fff"}}>Excel</button>
-              <button onClick={()=>{setSf(newSalida());setSs("programada");setSid(null);go("salidas","nueva");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Nueva Salida</button>
-            </>}
-            {sec==="clientes"&&<button onClick={()=>{setCf(newCliente());setCid(null);setDup(null);go("clientes","clienteForm");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Nuevo Cliente</button>}
+            <button onClick={exportXLS} style={{...Btn,background:"#065f46",color:"#fff"}}>Excel</button>
+            {sec==="salidas"&&<button onClick={()=>{setSf(newSalida());setSs("programada");setSid(null);go("salidas","nueva");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Bote</button>}
+            {sec==="cenotes"&&<button onClick={()=>{setScf(newSalidaCenote());setScss("programada");setScid(null);go("cenotes","nuevaCenote");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Cenote</button>}
+            {sec==="clientes"&&<button onClick={()=>{setCf(newCliente());setCid(null);setDup(null);go("clientes","clienteForm");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Cliente</button>}
           </div>
         </div>
       </header>
 
       <main style={{maxWidth:1200,margin:"0 auto",padding:"24px 16px"}}>
 
-        {/* Stats */}
+        {/* ══ STATS BOTE ══ */}
         {sec==="salidas"&&view!=="nueva"&&(
           <div style={{display:"flex",gap:12,marginBottom:24,flexWrap:"wrap"}}>
             {Object.entries(STATUS).map(([k,v])=>(
@@ -320,17 +477,29 @@ function App() {
               <div style={{fontSize:26,fontWeight:800,color:"#475569"}}>{salidas.length}</div>
               <div style={{fontSize:11,fontWeight:600,marginTop:4,textTransform:"uppercase",color:"#475569"}}>Total</div>
             </div>
-            <div style={{...Card,padding:"14px 18px",minWidth:100,display:"flex",flexDirection:"column",alignItems:"center",background:"#faf5ff"}}>
-              <div style={{fontSize:26,fontWeight:800,color:"#5b21b6"}}>{clientes.length}</div>
-              <div style={{fontSize:11,fontWeight:600,marginTop:4,textTransform:"uppercase",color:"#5b21b6"}}>Clientes</div>
+          </div>
+        )}
+
+        {/* ══ STATS CENOTE ══ */}
+        {sec==="cenotes"&&view!=="nuevaCenote"&&(
+          <div style={{display:"flex",gap:12,marginBottom:24,flexWrap:"wrap"}}>
+            {Object.entries(STATUS).map(([k,v])=>(
+              <div key={k} style={{...Card,padding:"14px 18px",minWidth:100,display:"flex",flexDirection:"column",alignItems:"center",background:v.bg}}>
+                <div style={{fontSize:26,fontWeight:800,color:v.text}}>{cntsCenote[k]}</div>
+                <div style={{fontSize:11,fontWeight:600,marginTop:4,textTransform:"uppercase",color:v.text}}>{v.label}</div>
+              </div>
+            ))}
+            <div style={{...Card,padding:"14px 18px",minWidth:100,display:"flex",flexDirection:"column",alignItems:"center",background:"#f0fdfa"}}>
+              <div style={{fontSize:26,fontWeight:800,color:"#0f766e"}}>{salidasCenote.length}</div>
+              <div style={{fontSize:11,fontWeight:600,marginTop:4,textTransform:"uppercase",color:"#0f766e"}}>Total</div>
             </div>
           </div>
         )}
 
-        {/* FORM SALIDA */}
+        {/* ══ FORM SALIDA BOTE ══ */}
         {sec==="salidas"&&view==="nueva"&&(
           <div style={Card}>
-            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{sid?"Editar Salida":"Registrar Nueva Salida"}</h2>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{sid?"Editar Salida Bote":"Nueva Salida Bote 🚤"}</h2>
             <SLbl>Datos del bote</SLbl>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:24}}>
               <FF label="Fecha *" type="date" value={sf.fecha} onChange={v=>setSf({...sf,fecha:v})}/>
@@ -356,89 +525,61 @@ function App() {
               <SLbl>Grupos propios</SLbl>
               <button onClick={addGrupo} style={{...Btn,background:"#0c4a6e",color:"#fff",fontSize:12}}>+ Agregar grupo</button>
             </div>
-            {sf.grupos.length===0&&(
-              <div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>
-                Sin grupos propios. Usa el boton para agregar.
-              </div>
-            )}
-            {sf.grupos.map((g,gi)=>{
-              const gc=GC[gi%GC.length];
-              return (
-                <div key={g.id} style={{borderRadius:12,padding:16,border:"1px solid #e2e8f0",borderLeft:"4px solid "+gc.border,background:gc.bg,marginBottom:14}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-                    <span style={{...Badge,background:gc.badgeBg,color:gc.badge}}>Grupo {gi+1}</span>
-                    <button onClick={()=>remGrupo(gi)} style={{...Btn,background:"#fee2e2",color:"#b91c1c",fontSize:12}}>Quitar</button>
-                  </div>
-                  <div style={{marginBottom:12}}>
-                    <label style={LS}>Instructor / Dive Master</label>
-                    <select style={SS} value={g.instructorId||""} onChange={e=>{
+            {sf.grupos.length===0&&<div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>Nuestros instructores/DM con clientes propios.</div>}
+            <GruposPropiosForm grupos={sf.grupos} addG={addGrupo} remG={remGrupo} updG={updGrupo} addC={addCli} remC={remCli} togG={togGear} availFn={avail}/>
+
+            {/* Grupos Staff + Agencia externa */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"20px 0 12px"}}>
+              <SLbl>Nuestro Staff con agencia externa</SLbl>
+              <button onClick={addGrupoStaff} style={{...Btn,background:"#5b21b6",color:"#fff",fontSize:12}}>+ Agregar</button>
+            </div>
+            {(sf.gruposStaff||[]).length===0&&<div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>Nuestro DM/Instructor guiando clientes de una agencia externa en el bote.</div>}
+            {(sf.gruposStaff||[]).map((g,gi)=>(
+              <div key={g.id} style={{borderRadius:12,padding:16,border:"1px solid #e2e8f0",borderLeft:"4px solid "+GC_STAF.border,background:GC_STAF.bg,marginBottom:14}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                  <span style={{...Badge,background:GC_STAF.badgeBg,color:GC_STAF.badge}}>Staff + Agencia {gi+1}</span>
+                  <button onClick={()=>remGrupoStaff(gi)} style={{...Btn,background:"#fee2e2",color:"#b91c1c",fontSize:12}}>Quitar</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                  <div>
+                    <label style={LS}>Nuestro DM / Instructor</label>
+                    <select style={SS} value={g.staffId||""} onChange={e=>{
                       const s=staff.find(x=>x.id===e.target.value);
-                      updGrupo(gi,"instructorId",e.target.value);
-                      updGrupo(gi,"instructorNombre",s?fn(s):"");
+                      updGrupoStaff(gi,"staffId",e.target.value);
+                      updGrupoStaff(gi,"staffNombre",s?fn(s):"");
                     }}>
                       <option value="">-- Seleccionar --</option>
                       {staff.filter(s=>(s.roles||[]).some(r=>r==="Instructor"||r==="Dive Master")).map(s=>(
-                        <option key={s.id} value={s.id}>{fn(s)} ({(s.roles||[]).filter(r=>r!=="Capitan").join(", ")})</option>
+                        <option key={s.id} value={s.id}>{fn(s)}</option>
                       ))}
                     </select>
                   </div>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                    <label style={LS}>Clientes asignados</label>
-                    <CliSel disp={avail(gi)} onSel={c=>addCli(gi,c)} gc={gc}/>
+                  <FF label="Agencia externa *" placeholder="Nombre de la agencia" value={g.agencia||""} onChange={v=>updGrupoStaff(gi,"agencia",v)}/>
+                  <div>
+                    <label style={LS}>Numero de pax</label>
+                    <input type="number" min={1} style={IS} value={g.pax||1} onChange={e=>updGrupoStaff(gi,"pax",e.target.value)}/>
                   </div>
-                  {(g.clientes||[]).length===0?(
-                    <div style={{fontSize:13,color:"#94a3b8",padding:"8px 0"}}>Sin clientes asignados.</div>
-                  ):(<>
-                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0",borderBottom:"1px solid #e2e8f0",marginBottom:6}}>
-                      <div style={{flex:1,fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase"}}>Buzo</div>
-                      {GEAR.map(g=><div key={g} style={{width:36,textAlign:"center",fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",flexShrink:0}}>{g}</div>)}
-                      <div style={{width:28}}/>
-                    </div>
-                    {(g.clientes||[]).map((c,ci)=>(
-                      <div key={ci} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 0",borderBottom:"1px solid rgba(0,0,0,0.04)"}}>
-                        <div style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0,background:gc.badgeBg,color:gc.badge}}>{ci+1}</div>
-                        <div style={{flex:1,fontSize:14,fontWeight:500,minWidth:100}}>{c.nombre}</div>
-                        {GEAR.map(gear=>(
-                          <label key={gear} style={{cursor:"pointer",flexShrink:0,width:36,display:"flex",justifyContent:"center"}}>
-                            <input type="checkbox" checked={!!(c.gear?.[gear])} onChange={()=>togGear(gi,ci,gear)} style={{display:"none"}}/>
-                            <div style={{width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,cursor:"pointer",background:c.gear?.[gear]?gc.badge:"#fff",border:"2px solid "+(c.gear?.[gear]?gc.badge:"#cbd5e1"),color:"#fff"}}>
-                              {c.gear?.[gear]&&"v"}
-                            </div>
-                          </label>
-                        ))}
-                        <button onClick={()=>remCli(gi,ci)} style={{background:"#fff1f2",color:"#b91c1c",border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,cursor:"pointer",fontWeight:700}}>x</button>
-                      </div>
-                    ))}
-                    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:8}}>
-                      <span style={{color:"#94a3b8",fontSize:12,marginRight:4}}>Equipo:</span>
-                      {GEAR.map(g=><span key={g} style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600}}>{g}</span>)}
-                    </div>
-                  </>)}
                 </div>
-              );
-            })}
+              </div>
+            ))}
 
             {/* Grupos externos */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"20px 0 12px"}}>
-              <SLbl>Grupos externos</SLbl>
-              <button onClick={addGrupoExt} style={{...Btn,background:"#475569",color:"#fff",fontSize:12}}>+ Agregar grupo externo</button>
+              <SLbl>Grupos externos completos</SLbl>
+              <button onClick={addGrupoExt} style={{...Btn,background:"#475569",color:"#fff",fontSize:12}}>+ Agregar</button>
             </div>
-            {(sf.gruposExternos||[]).length===0&&(
-              <div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>
-                Agencias u operadores externos con sus propios clientes y DM.
-              </div>
-            )}
+            {(sf.gruposExternos||[]).length===0&&<div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>Agencias con su propio DM y clientes.</div>}
             {(sf.gruposExternos||[]).map((g,gi)=>(
               <div key={g.id} style={{borderRadius:12,padding:16,border:"1px solid #e2e8f0",borderLeft:"4px solid "+GC_EXT.border,background:GC_EXT.bg,marginBottom:14}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-                  <span style={{...Badge,background:GC_EXT.badgeBg,color:GC_EXT.badge}}>Grupo Externo {gi+1}</span>
+                  <span style={{...Badge,background:GC_EXT.badgeBg,color:GC_EXT.badge}}>Externo {gi+1}</span>
                   <button onClick={()=>remGrupoExt(gi)} style={{...Btn,background:"#fee2e2",color:"#b91c1c",fontSize:12}}>Quitar</button>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
-                  <FF label="Nombre del grupo / Agencia *" placeholder="Ej. Ocean Divers" value={g.nombreGrupo||""} onChange={v=>updGrupoExt(gi,"nombreGrupo",v)}/>
-                  <FF label="DM / Instructor externo" placeholder="Nombre del guia" value={g.dmExterno||""} onChange={v=>updGrupoExt(gi,"dmExterno",v)}/>
+                  <FF label="Nombre del grupo / Agencia" placeholder="Ej. Ocean Divers" value={g.nombreGrupo||""} onChange={v=>updGrupoExt(gi,"nombreGrupo",v)}/>
+                  <FF label="DM externo" placeholder="Nombre del DM" value={g.dmExterno||""} onChange={v=>updGrupoExt(gi,"dmExterno",v)}/>
                   <div>
-                    <label style={LS}>Numero de pax *</label>
+                    <label style={LS}>Numero de pax</label>
                     <input type="number" min={1} style={IS} value={g.pax||1} onChange={e=>updGrupoExt(gi,"pax",e.target.value)}/>
                   </div>
                 </div>
@@ -447,11 +588,7 @@ function App() {
                   <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
                     {GEAR.map(gear=>{
                       const sel=(g.equipo||[]).includes(gear);
-                      return (
-                        <button key={gear} onClick={()=>togGearExt(gi,gear)} style={{padding:"6px 14px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,background:sel?GC_EXT.badge:"#fff",color:sel?"#fff":GC_EXT.badge,border:"2px solid "+(sel?GC_EXT.badge:GC_EXT.border)}}>
-                          {gear}
-                        </button>
-                      );
+                      return <button key={gear} onClick={()=>togGearExt(gi,gear)} style={{padding:"6px 14px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,background:sel?GC_EXT.badge:"#fff",color:sel?"#fff":GC_EXT.badge,border:"2px solid "+(sel?GC_EXT.badge:GC_EXT.border)}}>{gear}</button>;
                     })}
                   </div>
                 </div>
@@ -475,10 +612,52 @@ function App() {
           </div>
         )}
 
-        {/* LISTA SALIDAS */}
+        {/* ══ FORM SALIDA CENOTE ══ */}
+        {sec==="cenotes"&&view==="nuevaCenote"&&(
+          <div style={Card}>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0f766e"}}>{scid?"Editar Salida Cenote":"Nueva Salida Cenote 💧"}</h2>
+            <SLbl>Datos del cenote</SLbl>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:24}}>
+              <FF label="Fecha *" type="date" value={scf.fecha} onChange={v=>setScf({...scf,fecha:v})}/>
+              <FF label="Hora *"  type="time" value={scf.hora}  onChange={v=>setScf({...scf,hora:v})}/>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={LS}>Cenote *</label>
+                <select style={SS} value={scf.cenote_id} onChange={e=>setScf({...scf,cenote_id:e.target.value})}>
+                  <option value="">-- Seleccionar cenote --</option>
+                  {cenotes.map(c=><option key={c.id} value={c.id}>{c.nombre}{c.ubicacion?" - "+c.ubicacion:""}</option>)}
+                </select>
+                {cenotes.length===0&&<div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>No hay cenotes registrados. <span style={{color:"#0f766e",cursor:"pointer",fontWeight:600}} onClick={()=>go("catalogo","cenoteForm")}>Registra uno en Catalogo</span></div>}
+              </div>
+            </div>
+
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <SLbl>Grupos</SLbl>
+              <button onClick={addGrupoCenote} style={{...Btn,background:"#0f766e",color:"#fff",fontSize:12}}>+ Agregar grupo</button>
+            </div>
+            {scf.grupos.length===0&&<div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>Agrega un grupo con su instructor/DM y clientes.</div>}
+            <GruposPropiosForm grupos={scf.grupos} addG={addGrupoCenote} remG={remGrupoCenote} updG={updGrupoCenote} addC={addCliCenote} remC={remCliCenote} togG={togGearCenote} availFn={availCenote}/>
+
+            <div style={{marginTop:20}}>
+              <SLbl>Estado y notas</SLbl>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+                {Object.entries(STATUS).map(([k,v])=>(
+                  <button key={k} onClick={()=>setScss(k)} style={{padding:"8px 16px",borderRadius:8,cursor:"pointer",fontSize:13,background:scss===k?v.bg:"#f8fafc",color:scss===k?v.text:"#64748b",border:"2px solid "+(scss===k?v.text:"#e2e8f0"),fontWeight:scss===k?700:400}}>{v.label}</button>
+                ))}
+              </div>
+              <label style={LS}>Notas</label>
+              <textarea style={{...IS,resize:"vertical",background:"#f8fafc"}} rows={3} value={scf.notas} onChange={e=>setScf({...scf,notas:e.target.value})}/>
+            </div>
+            <div style={{display:"flex",gap:12,marginTop:24}}>
+              <button style={{...Btn,background:"#0f766e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={saveSalidaCenote}>{scid?"Guardar Cambios":"Registrar Salida"}</button>
+              <button style={{...Btn,background:"#e2e8f0",color:"#475569",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>{setScf(newSalidaCenote());setScid(null);setView("listaCenote");}}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {/* ══ LISTA SALIDAS BOTE ══ */}
         {sec==="salidas"&&view==="lista"&&(<>
           <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-            <input style={{...IS,flex:1,minWidth:220}} placeholder="Buscar embarcacion, instructor, cliente, grupo externo..." value={sQ} onChange={e=>setSQ(e.target.value)}/>
+            <input style={{...IS,flex:1,minWidth:220}} placeholder="Buscar embarcacion, instructor, cliente..." value={sQ} onChange={e=>setSQ(e.target.value)}/>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               {["todas","programada","completada","cancelada"].map(f=>(
                 <button key={f} onClick={()=>setSFil(f)} style={{...Btn,background:sFil===f?"#0ea5e9":"#f1f5f9",color:sFil===f?"#fff":"#475569"}}>{f.charAt(0).toUpperCase()+f.slice(1)}</button>
@@ -486,16 +665,14 @@ function App() {
             </div>
           </div>
           {fSal.length===0?(
-            <div style={{...Card,textAlign:"center",padding:"60px 20px"}}>
-              <div style={{fontSize:48}}>🤿</div>
-              <div style={{color:"#94a3b8",marginTop:8}}>{salidas.length===0?"No hay salidas aun.":"Sin resultados."}</div>
-            </div>
+            <div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>🚤</div><div style={{color:"#94a3b8",marginTop:8}}>{salidas.length===0?"No hay salidas de bote aun.":"Sin resultados."}</div></div>
           ):(
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               {fSal.map(s=>{
                 const sc=STATUS[s.status], isExp=sExp[s.id];
                 const nP=(s.grupos||[]).reduce((a,g)=>a+(g.clientes?.length||0),0);
                 const nE=(s.gruposExternos||[]).reduce((a,g)=>a+(Number(g.pax)||0),0);
+                const nS=(s.gruposStaff||[]).reduce((a,g)=>a+(Number(g.pax)||0),0);
                 return (
                   <div key={s.id} style={{...Card,padding:0,overflow:"hidden"}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",flexWrap:"wrap",gap:10}}>
@@ -506,9 +683,10 @@ function App() {
                           <div style={{fontSize:12,color:"#94a3b8"}}>{s.fecha} · {s.hora}</div>
                         </div>
                         {s.capitan_id&&<span style={Chip}>⚓ {staffN(s.capitan_id)}</span>}
-                        {nP>0&&<span style={Chip}>🤿 {nP} buzo{nP!==1?"s":""}</span>}
+                        {nP>0&&<span style={Chip}>🤿 {nP} propios</span>}
+                        {nS>0&&<span style={{...Chip,background:"#ede9fe",color:"#5b21b6"}}>👤 {nS} staff+ag.</span>}
                         {nE>0&&<span style={{...Chip,border:"1px dashed #94a3b8"}}>🌐 {nE} ext.</span>}
-                        {(nP+nE)>0&&<span style={{...Chip,background:"#f0fdfa",color:"#0f766e",fontWeight:700}}>Total: {nP+nE} pax</span>}
+                        {(nP+nE+nS)>0&&<span style={{...Chip,background:"#f0fdfa",color:"#0f766e",fontWeight:700}}>Total: {nP+nE+nS} pax</span>}
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
                         <select value={s.status} onChange={e=>chgStatus(s.id,e.target.value)} style={{border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",background:sc.bg,color:sc.text}}>
@@ -558,19 +736,27 @@ function App() {
                             );
                           })}
                         </>)}
+                        {(s.gruposStaff||[]).length>0&&(<>
+                          <div style={{fontSize:11,fontWeight:700,color:"#5b21b6",textTransform:"uppercase",letterSpacing:"1px",margin:"14px 0 10px"}}>Nuestro Staff con agencia externa</div>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
+                            {(s.gruposStaff||[]).map((g,gi)=>(
+                              <div key={gi} style={{borderRadius:10,padding:12,borderLeft:"4px solid "+GC_STAF.border,background:GC_STAF.bg}}>
+                                <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>👤 {g.staffNombre||"--"}</div>
+                                <div style={{fontSize:13,color:"#475569",marginBottom:4}}>🏢 Agencia: {g.agencia||"--"}</div>
+                                <div style={{fontSize:13,color:"#475569"}}>👥 {g.pax} pax externos</div>
+                              </div>
+                            ))}
+                          </div>
+                        </>)}
                         {(s.gruposExternos||[]).length>0&&(<>
-                          <div style={{fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:"1px",margin:"14px 0 10px"}}>Grupos externos</div>
+                          <div style={{fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:"1px",margin:"14px 0 10px"}}>Grupos externos completos</div>
                           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
                             {(s.gruposExternos||[]).map((g,gi)=>(
                               <div key={gi} style={{borderRadius:10,padding:12,borderLeft:"4px solid "+GC_EXT.border,background:GC_EXT.bg}}>
-                                <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>🌐 {g.nombreGrupo||"Grupo externo"}</div>
+                                <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>🌐 {g.nombreGrupo||"Externo"}</div>
                                 {g.dmExterno&&<div style={{fontSize:13,color:"#475569",marginBottom:4}}>👤 DM: {g.dmExterno}</div>}
                                 <div style={{fontSize:13,color:"#475569",marginBottom:6}}>👥 {g.pax} pax</div>
-                                {(g.equipo||[]).length>0&&(
-                                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                                    {(g.equipo||[]).map(e=><span key={e} style={{background:"#e2e8f0",color:"#334155",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600}}>{e}</span>)}
-                                  </div>
-                                )}
+                                {(g.equipo||[]).length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{(g.equipo||[]).map(e=><span key={e} style={{background:"#e2e8f0",color:"#334155",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600}}>{e}</span>)}</div>}
                               </div>
                             ))}
                           </div>
@@ -585,13 +771,100 @@ function App() {
           )}
         </>)}
 
-        {/* CALENDARIO */}
+        {/* ══ LISTA SALIDAS CENOTE ══ */}
+        {sec==="cenotes"&&view==="listaCenote"&&(<>
+          <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+            <input style={{...IS,flex:1,minWidth:220}} placeholder="Buscar cenote, instructor, cliente..." value={scQ} onChange={e=>setScQ(e.target.value)}/>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {["todas","programada","completada","cancelada"].map(f=>(
+                <button key={f} onClick={()=>setScFil(f)} style={{...Btn,background:scFil===f?"#0f766e":"#f1f5f9",color:scFil===f?"#fff":"#475569"}}>{f.charAt(0).toUpperCase()+f.slice(1)}</button>
+              ))}
+            </div>
+          </div>
+          {fSalCenote.length===0?(
+            <div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>💧</div><div style={{color:"#94a3b8",marginTop:8}}>{salidasCenote.length===0?"No hay salidas de cenote aun.":"Sin resultados."}</div></div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              {fSalCenote.map(s=>{
+                const sc=STATUS[s.status], isExp=scExp[s.id];
+                const nC=tPaxCenote(s);
+                return (
+                  <div key={s.id} style={{...Card,padding:0,overflow:"hidden",borderTop:"3px solid #14b8a6"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",flexWrap:"wrap",gap:10}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",flex:1}}>
+                        <div style={{minWidth:90}}>
+                          <div style={{fontSize:11,color:"#0f766e",fontWeight:700}}>{scNum(s.num_salida||0)}</div>
+                          <div style={{fontWeight:700,fontSize:15}}>💧 {cenoteN(s.cenote_id)}</div>
+                          <div style={{fontSize:12,color:"#94a3b8"}}>{s.fecha} · {s.hora}</div>
+                        </div>
+                        <span style={{...Chip,background:"#f0fdfa",color:"#0f766e",fontWeight:700}}>🤿 {nC} buzo{nC!==1?"s":""}</span>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                        <select value={s.status} onChange={e=>chgStatusCenote(s.id,e.target.value)} style={{border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",background:sc.bg,color:sc.text}}>
+                          {Object.entries(STATUS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                        <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editSalidaCenote(s)}>✏️</button>
+                        <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delSalidaCenote(s.id)}>🗑️</button>
+                        <button onClick={()=>setScExp(x=>({...x,[s.id]:!x[s.id]}))} style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#0f766e"}}>{isExp?"Ocultar":"Ver grupos"}</button>
+                      </div>
+                    </div>
+                    {isExp&&(
+                      <div style={{borderTop:"1px solid #f1f5f9",padding:"14px 18px",background:"#fafafa"}}>
+                        {(s.grupos||[]).map((g,gi)=>{
+                          const gc=GC[gi%GC.length];
+                          return (
+                            <div key={gi} style={{borderRadius:10,padding:12,borderLeft:"4px solid "+gc.border,background:gc.bg,marginBottom:10}}>
+                              <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}>
+                                <span style={{...Badge,background:gc.badgeBg,color:gc.badge}}>Grupo {gi+1}</span>
+                                <span style={{fontWeight:700,fontSize:14}}>👤 {g.instructorNombre||"Sin instructor"}</span>
+                              </div>
+                              {(g.clientes||[]).length===0?<div style={{fontSize:13,color:"#94a3b8"}}>Sin clientes</div>:(
+                                <div style={{overflowX:"auto"}}>
+                                  <table style={{borderCollapse:"collapse",width:"100%",minWidth:380}}>
+                                    <thead><tr>
+                                      <th style={TH}>#</th>
+                                      <th style={{...TH,textAlign:"left"}}>#ID</th>
+                                      <th style={{...TH,textAlign:"left"}}>Buzo</th>
+                                      {GEAR.map(g=><th key={g} style={TH}>{g}</th>)}
+                                    </tr></thead>
+                                    <tbody>{(g.clientes||[]).map((c,ci)=>{
+                                      const cl=clientes.find(x=>x.id===c.clienteId);
+                                      return (
+                                        <tr key={ci} style={{borderBottom:"1px solid rgba(0,0,0,0.05)"}}>
+                                          <td style={{...TD,color:gc.badge,fontWeight:700}}>{ci+1}</td>
+                                          <td style={{...TD,fontSize:11,color:"#0369a1",fontWeight:600}}>{cl?cNum(cl.num_cliente):"--"}</td>
+                                          <td style={{...TD,fontWeight:500}}>{c.nombre}</td>
+                                          {GEAR.map(g=><td key={g} style={{...TD,textAlign:"center"}}>{c.gear?.[g]?<span style={{color:gc.badge,fontWeight:700}}>v</span>:<span style={{color:"#e2e8f0"}}>-</span>}</td>)}
+                                        </tr>
+                                      );
+                                    })}</tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {s.notas&&<div style={{marginTop:10,fontSize:13,color:"#64748b",background:"#f1f5f9",borderRadius:8,padding:"8px 12px"}}>📝 {s.notas}</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>)}
+
+        {/* ══ CALENDARIO ══ */}
         {sec==="salidas"&&view==="calendario"&&(
           <div style={Card}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:24,marginBottom:20}}>
               <button style={{background:"#f1f5f9",border:"none",borderRadius:8,width:36,height:36,fontSize:20,cursor:"pointer",color:"#0c4a6e",fontWeight:700}} onClick={()=>{if(calM===0){setCalM(11);setCalY(y=>y-1);}else setCalM(m=>m-1);setCalD(null);}}>{"<"}</button>
               <span style={{fontSize:20,fontWeight:700,color:"#0c4a6e",minWidth:200,textAlign:"center"}}>{MONTHS[calM]} {calY}</span>
               <button style={{background:"#f1f5f9",border:"none",borderRadius:8,width:36,height:36,fontSize:20,cursor:"pointer",color:"#0c4a6e",fontWeight:700}} onClick={()=>{if(calM===11){setCalM(0);setCalY(y=>y+1);}else setCalM(m=>m+1);setCalD(null);}}>{">"}</button>
+            </div>
+            <div style={{display:"flex",gap:12,marginBottom:12,fontSize:12}}>
+              <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:"50%",background:"#0ea5e9",display:"inline-block"}}/>Bote</span>
+              <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:"50%",background:"#14b8a6",display:"inline-block"}}/>Cenote</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
               {DAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",padding:"6px 0"}}>{d}</div>)}
@@ -603,46 +876,35 @@ function App() {
                   <div key={day} onClick={()=>setCalD(isSel?null:day)} style={{borderRadius:10,padding:"8px 6px",minHeight:64,cursor:"pointer",background:isSel?"#0c4a6e":isT?"#e0f2fe":"#fff",border:isSel?"2px solid #0ea5e9":isT?"2px solid #7dd3fc":"1px solid #e2e8f0"}}>
                     <div style={{fontWeight:isT||isSel?700:400,color:isSel?"#fff":isT?"#0369a1":"#1e293b",fontSize:14}}>{day}</div>
                     <div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:3}}>
-                      {evs.slice(0,3).map(ev=><span key={ev.id} style={{width:8,height:8,borderRadius:"50%",background:STATUS[ev.status]?.dot}}/>)}
-                      {evs.length>3&&<span style={{fontSize:10,color:"#64748b"}}>+{evs.length-3}</span>}
+                      {evs.slice(0,4).map((ev,i)=><span key={i} style={{width:8,height:8,borderRadius:"50%",background:ev.tipo==="cenote"?"#14b8a6":STATUS[ev.status]?.dot}}/>)}
+                      {evs.length>4&&<span style={{fontSize:10,color:"#64748b"}}>+{evs.length-4}</span>}
                     </div>
                   </div>
                 );
               })}
             </div>
-            <div style={{display:"flex",gap:16,marginTop:14,flexWrap:"wrap"}}>
-              {Object.entries(STATUS).map(([k,v])=>(
-                <div key={k} style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"#64748b"}}>
-                  <span style={{width:10,height:10,borderRadius:"50%",background:v.dot,display:"inline-block"}}/>{v.label}
-                </div>
-              ))}
-            </div>
             {calD&&(
               <div style={{marginTop:20,background:"#f8fafc",borderRadius:12,padding:20,border:"1px solid #e2e8f0"}}>
                 <div style={{fontSize:16,fontWeight:700,color:"#0c4a6e",marginBottom:14}}>
                   {calD} de {MONTHS[calM]} {calY}
-                  <span style={{fontWeight:400,fontSize:13,color:"#64748b",marginLeft:10}}>{dEvs.length===0?"Sin salidas":dEvs.length+" salida"+(dEvs.length>1?"s":"")}</span>
+                  <span style={{fontWeight:400,fontSize:13,color:"#64748b",marginLeft:10}}>{dEvs.length} evento{dEvs.length!==1?"s":""}</span>
                 </div>
-                {dEvs.length===0?<div style={{color:"#94a3b8",fontSize:14}}>No hay salidas.</div>
-                :dEvs.map(ev=>{
+                {dEvs.map((ev,i)=>{
                   const sc=STATUS[ev.status];
-                  const nP=(ev.grupos||[]).reduce((a,g)=>a+(g.clientes?.length||0),0);
-                  const nE=(ev.gruposExternos||[]).reduce((a,g)=>a+(Number(g.pax)||0),0);
+                  const esBote=ev.tipo==="bote";
                   return (
-                    <div key={ev.id} style={{...Card,borderLeft:"4px solid "+sc.dot,marginBottom:12}}>
-                      <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                    <div key={i} style={{...Card,borderLeft:"4px solid "+(esBote?sc.dot:"#14b8a6"),marginBottom:12}}>
+                      <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:8}}>
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                          <span style={{fontWeight:700}}>🚤 {embN(ev.embarcacion_id)}</span>
+                          <span style={{fontWeight:700}}>{esBote?"🚤 "+embN(ev.embarcacion_id):"💧 "+cenoteN(ev.cenote_id)}</span>
                           <span style={{fontSize:12,color:"#64748b"}}>{ev.hora}</span>
-                          {ev.capitan_id&&<span style={{fontSize:12,color:"#64748b"}}>⚓ {staffN(ev.capitan_id)}</span>}
-                          {nP>0&&<span style={Chip}>🤿 {nP} propios</span>}
-                          {nE>0&&<span style={Chip}>🌐 {nE} ext.</span>}
+                          {esBote&&ev.capitan_id&&<span style={{fontSize:12,color:"#64748b"}}>⚓ {staffN(ev.capitan_id)}</span>}
                         </div>
                         <span style={{fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:6,background:sc.bg,color:sc.text}}>{sc.label}</span>
                       </div>
-                      <div style={{display:"flex",gap:8,marginTop:10}}>
-                        <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editSalida(ev)}>Editar</button>
-                        <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{delSalida(ev.id);setCalD(null);}}>Eliminar</button>
+                      <div style={{display:"flex",gap:8,marginTop:8}}>
+                        <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{esBote?editSalida(ev):editSalidaCenote(ev); setCalD(null);}}>Editar</button>
+                        <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{esBote?delSalida(ev.id):delSalidaCenote(ev.id); setCalD(null);}}>Eliminar</button>
                       </div>
                     </div>
                   );
@@ -652,21 +914,17 @@ function App() {
           </div>
         )}
 
-        {/* CLIENTES LISTA */}
+        {/* ══ CLIENTES LISTA ══ */}
         {sec==="clientes"&&view==="lista"&&(<>
-          <div style={{fontSize:20,fontWeight:700,color:"#0c4a6e",marginBottom:16}}>
-            Clientes <span style={{fontSize:13,fontWeight:400,color:"#64748b"}}>{clientes.length} registrados</span>
-          </div>
+          <div style={{fontSize:20,fontWeight:700,color:"#0c4a6e",marginBottom:16}}>Clientes <span style={{fontSize:13,fontWeight:400,color:"#64748b"}}>{clientes.length} registrados</span></div>
           <input style={{...IS,width:"100%",marginBottom:16}} placeholder="Buscar nombre, apellido, certificacion..." value={cQ} onChange={e=>setCQ(e.target.value)}/>
           {fCli.length===0?(
-            <div style={{...Card,textAlign:"center",padding:"60px 20px"}}>
-              <div style={{fontSize:48}}>👥</div>
-              <div style={{color:"#94a3b8",marginTop:8}}>{clientes.length===0?"No hay clientes aun.":"Sin resultados."}</div>
-            </div>
+            <div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>👥</div><div style={{color:"#94a3b8",marginTop:8}}>{clientes.length===0?"No hay clientes aun.":"Sin resultados."}</div></div>
           ):(
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
               {fCli.map(c=>{
                 const h=hist(c.id);
+                const total=h.bote.length+h.cenote.length;
                 return (
                   <div key={c.id} style={{...Card,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}} onClick={()=>{setCDet(c);setView("clienteDetalle");}}>
                     <div style={{width:44,height:44,borderRadius:"50%",background:"#0c4a6e",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,flexShrink:0}}>{c.nombre.charAt(0).toUpperCase()}</div>
@@ -677,7 +935,7 @@ function App() {
                     </div>
                     <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>
                       <span style={{background:"#e0f2fe",color:"#0369a1",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>{c.certificacion}</span>
-                      <span style={{fontSize:11,color:"#94a3b8"}}>{h.length} salida{h.length!==1?"s":""}</span>
+                      <span style={{fontSize:11,color:"#94a3b8"}}>{total} salida{total!==1?"s":""}</span>
                     </div>
                   </div>
                 );
@@ -686,7 +944,7 @@ function App() {
           )}
         </>)}
 
-        {/* CLIENTE FORM */}
+        {/* ══ CLIENTE FORM ══ */}
         {sec==="clientes"&&view==="clienteForm"&&(
           <div style={Card}>
             <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{cid?"Editar Cliente":"Nuevo Cliente"}</h2>
@@ -723,9 +981,10 @@ function App() {
           </div>
         )}
 
-        {/* CLIENTE DETALLE */}
+        {/* ══ CLIENTE DETALLE ══ */}
         {sec==="clientes"&&view==="clienteDetalle"&&cDet&&(()=>{
-          const c=clientes.find(x=>x.id===cDet.id)||cDet, h=hist(c.id);
+          const c=clientes.find(x=>x.id===cDet.id)||cDet;
+          const h=hist(c.id);
           return (<>
             <button style={{background:"none",border:"none",color:"#0369a1",fontWeight:600,fontSize:14,cursor:"pointer",marginBottom:12}} onClick={()=>setView("lista")}>Volver</button>
             <div style={Card}>
@@ -752,12 +1011,11 @@ function App() {
                 {c.notas&&<div style={{gridColumn:"1/-1",fontSize:14,color:"#475569"}}>📝 {c.notas}</div>}
               </div>
             </div>
+            {/* Historial bote */}
             <div style={Card}>
-              <h3 style={{fontSize:16,fontWeight:700,color:"#0c4a6e",marginBottom:16}}>
-                Historial <span style={{fontWeight:400,fontSize:13,color:"#64748b"}}>({h.length} salida{h.length!==1?"s":""})</span>
-              </h3>
-              {h.length===0?<div style={{color:"#94a3b8",fontSize:14}}>Sin salidas registradas.</div>
-              :h.map(s=>{
+              <h3 style={{fontSize:16,fontWeight:700,color:"#0c4a6e",marginBottom:16}}>🚤 Salidas en Bote <span style={{fontWeight:400,fontSize:13,color:"#64748b"}}>({h.bote.length})</span></h3>
+              {h.bote.length===0?<div style={{color:"#94a3b8",fontSize:14}}>Sin salidas en bote.</div>
+              :h.bote.map(s=>{
                 const sc=STATUS[s.status], gC=s.grupos?.find(g=>g.clientes?.some(cl=>cl.clienteId===c.id)), cEG=gC?.clientes?.find(cl=>cl.clienteId===c.id), gU=GEAR.filter(g=>cEG?.gear?.[g]);
                 return (
                   <div key={s.id} style={{background:"#fff",borderRadius:10,padding:12,marginBottom:8,boxShadow:"0 1px 4px rgba(0,0,0,0.05)",borderLeft:"4px solid "+sc.dot}}>
@@ -774,14 +1032,35 @@ function App() {
                 );
               })}
             </div>
+            {/* Historial cenote */}
+            <div style={Card}>
+              <h3 style={{fontSize:16,fontWeight:700,color:"#0f766e",marginBottom:16}}>💧 Salidas en Cenote <span style={{fontWeight:400,fontSize:13,color:"#64748b"}}>({h.cenote.length})</span></h3>
+              {h.cenote.length===0?<div style={{color:"#94a3b8",fontSize:14}}>Sin salidas en cenote.</div>
+              :h.cenote.map(s=>{
+                const sc=STATUS[s.status], gC=s.grupos?.find(g=>g.clientes?.some(cl=>cl.clienteId===c.id)), cEG=gC?.clientes?.find(cl=>cl.clienteId===c.id), gU=GEAR.filter(g=>cEG?.gear?.[g]);
+                return (
+                  <div key={s.id} style={{background:"#fff",borderRadius:10,padding:12,marginBottom:8,boxShadow:"0 1px 4px rgba(0,0,0,0.05)",borderLeft:"4px solid #14b8a6"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+                      <div>
+                        <span style={{fontWeight:700}}>💧 {cenoteN(s.cenote_id)}</span>
+                        <span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>{s.fecha} · {s.hora}</span>
+                        {gC&&<span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>👤 {gC.instructorNombre}</span>}
+                      </div>
+                      <span style={{fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:6,background:sc.bg,color:sc.text}}>{sc.label}</span>
+                    </div>
+                    {gU.length>0&&<div style={{marginTop:6,display:"flex",gap:4,flexWrap:"wrap"}}>{gU.map(g=><span key={g} style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600}}>{g}</span>)}</div>}
+                  </div>
+                );
+              })}
+            </div>
           </>);
         })()}
 
-        {/* CATALOGO */}
+        {/* ══ CATALOGO ══ */}
         {sec==="catalogo"&&view==="catalogo"&&(
           <div>
             <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-              {[["staff","Staff"],["embs","Embarcaciones"]].map(([t,l])=>(
+              {[["staff","Staff"],["embs","Embarcaciones"],["cenotesCat","Cenotes"]].map(([t,l])=>(
                 <button key={t} onClick={()=>setTab(t)} style={{...Btn,background:tab===t?"#0c4a6e":"#f1f5f9",color:tab===t?"#fff":"#475569",padding:"9px 18px",fontSize:14}}>{l}</button>
               ))}
             </div>
@@ -843,10 +1122,37 @@ function App() {
                 )}
               </div>
             )}
+
+            {tab==="cenotesCat"&&(
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                  <div style={{fontSize:20,fontWeight:700,color:"#0f766e"}}>Cenotes <span style={{fontSize:13,fontWeight:400,color:"#64748b"}}>{cenotes.length} registrados</span></div>
+                  <button onClick={()=>{setCenoteF(newCenote());setCenoteId(null);setView("cenoteForm");}} style={{...Btn,background:"#0f766e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}}>+ Nuevo</button>
+                </div>
+                {cenotes.length===0?<div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>💧</div><div style={{color:"#94a3b8",marginTop:8}}>No hay cenotes registrados.</div></div>:(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+                    {cenotes.map(c=>(
+                      <div key={c.id} style={{...Card,display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{width:44,height:44,borderRadius:"50%",background:"#0f766e",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>💧</div>
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:700,fontSize:15}}>{c.nombre}</div>
+                          {c.ubicacion&&<div style={{fontSize:12,color:"#64748b"}}>📍 {c.ubicacion}</div>}
+                          {c.notas&&<div style={{fontSize:12,color:"#64748b"}}>{c.notas}</div>}
+                        </div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{setCenoteF({nombre:c.nombre,ubicacion:c.ubicacion||"",notas:c.notas||""});setCenoteId(c.id);setView("cenoteForm");}}>✏️</button>
+                          <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delCenote(c.id)}>🗑️</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {/* STAFF FORM */}
+        {/* Staff Form */}
         {sec==="catalogo"&&view==="staffForm"&&(
           <div style={Card}>
             <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{stfId?"Editar Staff":"Nuevo Staff"}</h2>
@@ -861,11 +1167,7 @@ function App() {
               {ROLES.map(r=>{
                 const sel=(stf.roles||[]).includes(r);
                 const bg=r==="Capitan"?"#0369a1":r==="Instructor"?"#15803d":"#92400e";
-                return (
-                  <button key={r} onClick={()=>togRol(r)} style={{padding:"8px 18px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,background:sel?bg:"#f8fafc",color:sel?"#fff":"#64748b",border:"2px solid "+(sel?bg:"#e2e8f0")}}>
-                    {r}
-                  </button>
-                );
+                return <button key={r} onClick={()=>togRol(r)} style={{padding:"8px 18px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,background:sel?bg:"#f8fafc",color:sel?"#fff":"#64748b",border:"2px solid "+(sel?bg:"#e2e8f0")}}>{r}</button>;
               })}
             </div>
             <label style={LS}>Notas</label>
@@ -877,13 +1179,13 @@ function App() {
           </div>
         )}
 
-        {/* EMB FORM */}
+        {/* Emb Form */}
         {sec==="catalogo"&&view==="embForm"&&(
           <div style={Card}>
             <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{embId?"Editar Embarcacion":"Nueva Embarcacion"}</h2>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
               <div style={{gridColumn:"1/-1"}}><FF label="Nombre *" placeholder="Ej. Nautilus I" value={embF.nombre} onChange={v=>setEmbF({...embF,nombre:v})}/></div>
-              <FF label="Matricula" placeholder="Ej. MX-1234" value={embF.matricula||""} onChange={v=>setEmbF({...embF,matricula:v})}/>
+              <FF label="Matricula" value={embF.matricula||""} onChange={v=>setEmbF({...embF,matricula:v})}/>
               <FF label="Capacidad (pax)" type="number" value={embF.capacidad||""} onChange={v=>setEmbF({...embF,capacidad:v})}/>
               <div style={{gridColumn:"1/-1"}}><label style={LS}>Notas</label><textarea style={{...IS,resize:"vertical",background:"#f8fafc"}} rows={2} value={embF.notas||""} onChange={e=>setEmbF({...embF,notas:e.target.value})}/></div>
             </div>
@@ -893,6 +1195,22 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* Cenote Form */}
+        {(sec==="catalogo"&&view==="cenoteForm")||(sec==="cenotes"&&view==="cenoteForm")?(
+          <div style={Card}>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0f766e"}}>{cenoteId?"Editar Cenote":"Nuevo Cenote"}</h2>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              <div style={{gridColumn:"1/-1"}}><FF label="Nombre *" placeholder="Ej. Gran Cenote" value={cenoteF.nombre} onChange={v=>setCenoteF({...cenoteF,nombre:v})}/></div>
+              <div style={{gridColumn:"1/-1"}}><FF label="Ubicacion" placeholder="Ej. Tulum, Q.Roo" value={cenoteF.ubicacion||""} onChange={v=>setCenoteF({...cenoteF,ubicacion:v})}/></div>
+              <div style={{gridColumn:"1/-1"}}><label style={LS}>Notas</label><textarea style={{...IS,resize:"vertical",background:"#f8fafc"}} rows={2} value={cenoteF.notas||""} onChange={e=>setCenoteF({...cenoteF,notas:e.target.value})}/></div>
+            </div>
+            <div style={{display:"flex",gap:12,marginTop:20}}>
+              <button style={{...Btn,background:"#0f766e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={saveCenote}>{cenoteId?"Guardar":"Registrar"}</button>
+              <button style={{...Btn,background:"#e2e8f0",color:"#475569",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>setView("catalogo")}>Cancelar</button>
+            </div>
+          </div>
+        ):null}
 
       </main>
       {toast&&<div style={{position:"fixed",bottom:24,right:24,color:"#fff",padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:600,boxShadow:"0 4px 12px rgba(0,0,0,0.2)",zIndex:1000,background:toast.type==="error"?"#b91c1c":"#15803d"}}>{toast.msg}</div>}
