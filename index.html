@@ -29,6 +29,7 @@ const GEAR    = ["BCD","REG","MASK","FINS","WS","WB"];
 const CERTS   = ["Sin certificacion","OW","AOW","Rescue","Divemaster","Instructor","TEC","Otro"];
 const CERT_AG = ["PADI","SSI","NAUI","CMAS","SDI/TDI","RAID","SNSI","Otra"];
 const ROLES   = ["Capitan","Instructor","Dive Master"];
+const USER_ROLES = ["admin","editor","visualizador"];
 
 const STATUS = {
   programada:{ bg:"#e0f2fe", text:"#0369a1", dot:"#0ea5e9", label:"Programada" },
@@ -62,16 +63,130 @@ const cNum = n => "C-" + String(n).padStart(4,"0");
 const sNum = n => "S-" + String(n).padStart(4,"0");
 const scNum= n => "SC-"+ String(n).padStart(4,"0");
 
+// ── LOGIN SCREEN ──────────────────────────────────────────────
+function LoginScreen() {
+  const [mode,    setMode]    = useState("login"); // login | register
+  const [email,   setEmail]   = useState("");
+  const [pass,    setPass]    = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState("");
+  const [msg,     setMsg]     = useState("");
+
+  const handleLogin = async () => {
+    if(!email||!pass){setError("Completa todos los campos.");return;}
+    setLoading(true); setError("");
+    const {error} = await db.auth.signInWithPassword({email, password:pass});
+    if(error) setError("Correo o contrasena incorrectos.");
+    setLoading(false);
+  };
+
+  const handleRegister = async () => {
+    if(!email||!pass){setError("Completa todos los campos.");return;}
+    if(pass.length<6){setError("La contrasena debe tener al menos 6 caracteres.");return;}
+    setLoading(true); setError("");
+    const {data,error} = await db.auth.signUp({email, password:pass});
+    if(error){setError(error.message);setLoading(false);return;}
+    // Asignar rol visualizador por defecto
+    if(data.user){
+      await db.from("user_roles").insert({user_id:data.user.id, role:"visualizador"});
+    }
+    setMsg("Cuenta creada. Ya puedes iniciar sesion.");
+    setMode("login"); setPass("");
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f0f9ff",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#fff",borderRadius:20,padding:40,boxShadow:"0 8px 40px rgba(0,0,0,0.12)",width:"100%",maxWidth:400}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{fontSize:52,marginBottom:8}}>🤿</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#0c4a6e"}}>Bitacora de Buceo</div>
+          <div style={{fontSize:13,color:"#64748b",marginTop:4}}>Sistema de gestion de salidas</div>
+        </div>
+
+        {msg&&<div style={{background:"#dcfce7",color:"#15803d",borderRadius:10,padding:12,marginBottom:16,fontSize:13,fontWeight:600}}>{msg}</div>}
+        {error&&<div style={{background:"#fee2e2",color:"#b91c1c",borderRadius:10,padding:12,marginBottom:16,fontSize:13,fontWeight:600}}>{error}</div>}
+
+        <div style={{display:"flex",gap:8,marginBottom:24,background:"#f1f5f9",borderRadius:10,padding:4}}>
+          {[["login","Iniciar Sesion"],["register","Crear Cuenta"]].map(([m,l])=>(
+            <button key={m} onClick={()=>{setMode(m);setError("");setMsg("");}} style={{flex:1,padding:"8px 0",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,background:mode===m?"#fff":"transparent",color:mode===m?"#0c4a6e":"#64748b",boxShadow:mode===m?"0 1px 4px rgba(0,0,0,0.1)":"none"}}>{l}</button>
+          ))}
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div>
+            <label style={{display:"block",fontSize:13,fontWeight:600,color:"#475569",marginBottom:5}}>Correo electronico</label>
+            <input type="email" style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #cbd5e1",fontSize:14,outline:"none"}}
+              placeholder="tu@correo.com" value={email} onChange={e=>setEmail(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&(mode==="login"?handleLogin():handleRegister())}/>
+          </div>
+          <div>
+            <label style={{display:"block",fontSize:13,fontWeight:600,color:"#475569",marginBottom:5}}>Contrasena</label>
+            <input type="password" style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #cbd5e1",fontSize:14,outline:"none"}}
+              placeholder={mode==="register"?"Minimo 6 caracteres":"Tu contrasena"} value={pass} onChange={e=>setPass(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&(mode==="login"?handleLogin():handleRegister())}/>
+          </div>
+          <button onClick={mode==="login"?handleLogin:handleRegister}
+            style={{background:"#0c4a6e",color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:15,fontWeight:700,cursor:"pointer",marginTop:4,opacity:loading?0.7:1}}>
+            {loading?"Cargando...":(mode==="login"?"Iniciar Sesion":"Crear Cuenta")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN APP ──────────────────────────────────────────────────
 function App() {
+  const [session,  setSession]  = useState(null);
+  const [userRole, setUserRole] = useState(null);
+  const [authReady,setAuthReady]= useState(false);
+
+  useEffect(()=>{
+    db.auth.getSession().then(({data:{session}})=>{
+      setSession(session);
+      if(session) loadRole(session.user.id);
+      else setAuthReady(true);
+    });
+    const {data:{subscription}} = db.auth.onAuthStateChange((_,session)=>{
+      setSession(session);
+      if(session) loadRole(session.user.id);
+      else { setUserRole(null); setAuthReady(true); }
+    });
+    return ()=>subscription.unsubscribe();
+  },[]);
+
+  const loadRole = async (userId) => {
+    const {data} = await db.from("user_roles").select("role").eq("user_id",userId).single();
+    setUserRole(data?.role||"visualizador");
+    setAuthReady(true);
+  };
+
+  const handleLogout = async () => { await db.auth.signOut(); };
+
+  if(!authReady) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:16,background:"#f0f9ff"}}>
+      <div style={{fontSize:52}}>🤿</div>
+      <div style={{fontSize:16,fontWeight:600,color:"#0c4a6e"}}>Cargando...</div>
+    </div>
+  );
+
+  if(!session) return <LoginScreen/>;
+
+  return <MainApp session={session} userRole={userRole} onLogout={handleLogout}/>;
+}
+
+// ── MAIN APP CONTENT ──────────────────────────────────────────
+function MainApp({session, userRole, onLogout}) {
   const [salidas,       setSalidas]       = useState([]);
   const [salidasCenote, setSalidasCenote] = useState([]);
   const [clientes,      setClientes]      = useState([]);
   const [staff,         setStaff]         = useState([]);
   const [embs,          setEmbs]          = useState([]);
   const [cenotes,       setCenotes]       = useState([]);
+  const [userRoles,     setUserRoles]     = useState([]);
   const [loading,       setLoading]       = useState(true);
 
-  // Salidas bote
   const [sf,   setSf]   = useState(newSalida());
   const [ss,   setSs]   = useState("programada");
   const [sid,  setSid]  = useState(null);
@@ -79,7 +194,6 @@ function App() {
   const [sFil, setSFil] = useState("todas");
   const [sQ,   setSQ]   = useState("");
 
-  // Salidas cenote
   const [scf,   setScf]   = useState(newSalidaCenote());
   const [scss,  setScss]  = useState("programada");
   const [scid,  setScid]  = useState(null);
@@ -87,14 +201,12 @@ function App() {
   const [scFil, setScFil] = useState("todas");
   const [scQ,   setScQ]   = useState("");
 
-  // Clientes
   const [cf,   setCf]   = useState(newCliente());
   const [cid,  setCid]  = useState(null);
   const [cQ,   setCQ]   = useState("");
   const [cDet, setCDet] = useState(null);
   const [dup,  setDup]  = useState(null);
 
-  // Catalogo
   const [stf,      setStf]      = useState(newStaff());
   const [stfId,    setStfId]    = useState(null);
   const [embF,     setEmbF]     = useState(newEmb());
@@ -109,6 +221,11 @@ function App() {
   const [tab,  setTab]  = useState("staff");
   const [view, setView] = useState("lista");
   const [toast,setToast]= useState(null);
+
+  // Permisos
+  const canEdit   = userRole==="admin"||userRole==="editor";
+  const canDelete = userRole==="admin";
+  const isAdmin   = userRole==="admin";
 
   useEffect(()=>{ load(); },[]);
 
@@ -128,6 +245,10 @@ function App() {
     if(st.data) setStaff(st.data);
     if(e.data)  setEmbs(e.data);
     if(cn.data) setCenotes(cn.data);
+    if(isAdmin){
+      const {data:ur} = await db.from("user_roles").select("*");
+      if(ur) setUserRoles(ur);
+    }
     setLoading(false);
   };
 
@@ -152,11 +273,10 @@ function App() {
     return p+e+st;
   };
   const tPaxCenote = s => (s.grupos||[]).reduce((a,g)=>a+(g.clientes?.length||0),0);
-  const hist = cid => {
-    const b=salidas.filter(s=>(s.grupos||[]).some(g=>(g.clientes||[]).some(c=>c.clienteId===cid)));
-    const c=salidasCenote.filter(s=>(s.grupos||[]).some(g=>(g.clientes||[]).some(c=>c.clienteId===cid)));
-    return {bote:b, cenote:c};
-  };
+  const hist = cid => ({
+    bote:   salidas.filter(s=>(s.grupos||[]).some(g=>(g.clientes||[]).some(c=>c.clienteId===cid))),
+    cenote: salidasCenote.filter(s=>(s.grupos||[]).some(g=>(g.clientes||[]).some(c=>c.clienteId===cid)))
+  });
 
   // Grupos bote propios
   const addGrupo = () => setSf(s=>({...s,grupos:[...s.grupos,newGrupo()]}));
@@ -167,13 +287,13 @@ function App() {
   const togGear  = (gi,ci,gear) => setSf(s=>({...s,grupos:s.grupos.map((g,i)=>i!==gi?g:{...g,clientes:g.clientes.map((c,j)=>j!==ci?c:{...c,gear:{...(c.gear||{}),[gear]:!(c.gear?.[gear])}})})}));
   const avail    = gi => { const used=new Set((sf.grupos[gi]?.clientes||[]).map(c=>c.clienteId)); return clientes.filter(c=>!used.has(c.id)); };
 
-  // Grupos externos bote
+  // Grupos externos
   const addGrupoExt = () => setSf(s=>({...s,gruposExternos:[...(s.gruposExternos||[]),newGrupoExt()]}));
   const remGrupoExt = gi => setSf(s=>({...s,gruposExternos:(s.gruposExternos||[]).filter((_,i)=>i!==gi)}));
   const updGrupoExt = (gi,f,v) => setSf(s=>({...s,gruposExternos:(s.gruposExternos||[]).map((g,i)=>i===gi?{...g,[f]:v}:g)}));
   const togGearExt  = (gi,gear) => setSf(s=>({...s,gruposExternos:(s.gruposExternos||[]).map((g,i)=>i!==gi?g:{...g,equipo:(g.equipo||[]).includes(gear)?(g.equipo||[]).filter(x=>x!==gear):[...(g.equipo||[]),gear]})}));
 
-  // Grupos staff+agencia bote
+  // Grupos staff+agencia
   const addGrupoStaff = () => setSf(s=>({...s,gruposStaff:[...(s.gruposStaff||[]),newGrupoStaff()]}));
   const remGrupoStaff = gi => setSf(s=>({...s,gruposStaff:(s.gruposStaff||[]).filter((_,i)=>i!==gi)}));
   const updGrupoStaff = (gi,f,v) => setSf(s=>({...s,gruposStaff:(s.gruposStaff||[]).map((g,i)=>i===gi?{...g,[f]:v}:g)}));
@@ -315,6 +435,13 @@ function App() {
   };
   const delCenote = async id => { await db.from("cenotes").delete().eq("id",id); setCenotes(x=>x.filter(c=>c.id!==id)); toast_("Cenote eliminado.","error"); };
 
+  // Cambiar rol de usuario (solo admin)
+  const changeUserRole = async (userId, newRole) => {
+    await db.from("user_roles").update({role:newRole}).eq("user_id",userId);
+    setUserRoles(x=>x.map(u=>u.user_id===userId?{...u,role:newRole}:u));
+    toast_("Rol actualizado.");
+  };
+
   // Excel
   const exportXLS = () => {
     if(!salidas.length&&!salidasCenote.length){toast_("No hay salidas.","error");return;}
@@ -324,19 +451,13 @@ function App() {
         const cl=clientes.find(x=>x.id===c.clienteId)||{};
         rows.push({"Tipo":"Bote","#":sNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Staff":g.instructorNombre||"","Grupo":"Propio","Agencia":"","#Cliente":cl.num_cliente?cNum(cl.num_cliente):"","Nombre":cl.nombre||"","Apellido":cl.apellido||"","Pax":1,...Object.fromEntries(GEAR.map(g=>[g,c.gear?.[g]?"si":""])),"Estado":STATUS[s.status]?.label||s.status});
       }));
-      (s.gruposExternos||[]).forEach(g=>{
-        rows.push({"Tipo":"Bote","#":sNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Staff":g.dmExterno||"","Grupo":"Externo","Agencia":g.nombreGrupo||"","#Cliente":"","Nombre":"","Apellido":"","Pax":g.pax,...Object.fromEntries(GEAR.map(ge=>[ge,(g.equipo||[]).includes(ge)?"si":""])),"Estado":STATUS[s.status]?.label||s.status});
-      });
-      (s.gruposStaff||[]).forEach(g=>{
-        rows.push({"Tipo":"Bote","#":sNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Staff":g.staffNombre||"","Grupo":"Staff+Agencia","Agencia":g.agencia||"","#Cliente":"","Nombre":"","Apellido":"","Pax":g.pax,...Object.fromEntries(GEAR.map(g=>[g,""])),"Estado":STATUS[s.status]?.label||s.status});
-      });
+      (s.gruposExternos||[]).forEach(g=>rows.push({"Tipo":"Bote","#":sNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Staff":g.dmExterno||"","Grupo":"Externo","Agencia":g.nombreGrupo||"","#Cliente":"","Nombre":"","Apellido":"","Pax":g.pax,...Object.fromEntries(GEAR.map(ge=>[ge,(g.equipo||[]).includes(ge)?"si":""])),"Estado":STATUS[s.status]?.label||s.status}));
+      (s.gruposStaff||[]).forEach(g=>rows.push({"Tipo":"Bote","#":sNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":embN(s.embarcacion_id),"Capitan":staffN(s.capitan_id),"Staff":g.staffNombre||"","Grupo":"Staff+Agencia","Agencia":g.agencia||"","#Cliente":"","Nombre":"","Apellido":"","Pax":g.pax,...Object.fromEntries(GEAR.map(g=>[g,""])),"Estado":STATUS[s.status]?.label||s.status}));
     });
-    salidasCenote.forEach(s=>{
-      (s.grupos||[]).forEach(g=>(g.clientes||[]).forEach(c=>{
-        const cl=clientes.find(x=>x.id===c.clienteId)||{};
-        rows.push({"Tipo":"Cenote","#":scNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":cenoteN(s.cenote_id),"Capitan":"","Staff":g.instructorNombre||"","Grupo":"Propio","Agencia":"","#Cliente":cl.num_cliente?cNum(cl.num_cliente):"","Nombre":cl.nombre||"","Apellido":cl.apellido||"","Pax":1,...Object.fromEntries(GEAR.map(g=>[g,c.gear?.[g]?"si":""])),"Estado":STATUS[s.status]?.label||s.status});
-      }));
-    });
+    salidasCenote.forEach(s=>(s.grupos||[]).forEach(g=>(g.clientes||[]).forEach(c=>{
+      const cl=clientes.find(x=>x.id===c.clienteId)||{};
+      rows.push({"Tipo":"Cenote","#":scNum(s.num_salida||0),"Fecha":s.fecha,"Hora":s.hora,"Lugar":cenoteN(s.cenote_id),"Capitan":"","Staff":g.instructorNombre||"","Grupo":"Propio","Agencia":"","#Cliente":cl.num_cliente?cNum(cl.num_cliente):"","Nombre":cl.nombre||"","Apellido":cl.apellido||"","Pax":1,...Object.fromEntries(GEAR.map(g=>[g,c.gear?.[g]?"si":""])),"Estado":STATUS[s.status]?.label||s.status});
+    })));
     const ws=XLSX.utils.json_to_sheet(rows);
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,"Salidas");
@@ -344,7 +465,7 @@ function App() {
     toast_("Excel descargado");
   };
 
-  // Calendar (bote)
+  // Calendar
   const byDate={};
   salidas.forEach(s=>{ if(!byDate[s.fecha])byDate[s.fecha]=[]; byDate[s.fecha].push({...s,tipo:"bote"}); });
   salidasCenote.forEach(s=>{ if(!byDate[s.fecha])byDate[s.fecha]=[]; byDate[s.fecha].push({...s,tipo:"cenote"}); });
@@ -370,15 +491,16 @@ function App() {
   const cnts = { programada:salidas.filter(s=>s.status==="programada").length, completada:salidas.filter(s=>s.status==="completada").length, cancelada:salidas.filter(s=>s.status==="cancelada").length };
   const cntsCenote = { programada:salidasCenote.filter(s=>s.status==="programada").length, completada:salidasCenote.filter(s=>s.status==="completada").length, cancelada:salidasCenote.filter(s=>s.status==="cancelada").length };
 
+  const rolColor = r => r==="admin"?{bg:"#fee2e2",color:"#b91c1c"}:r==="editor"?{bg:"#dcfce7",color:"#15803d"}:{bg:"#f1f5f9",color:"#475569"};
+
   if(loading) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:16,background:"#f0f9ff"}}>
       <div style={{fontSize:52}}>🤿</div>
-      <div style={{fontSize:16,fontWeight:600,color:"#0c4a6e"}}>Cargando Bitacora de Buceo...</div>
+      <div style={{fontSize:16,fontWeight:600,color:"#0c4a6e"}}>Cargando...</div>
     </div>
   );
 
-  // ── Componente reutilizable para filas de clientes con equipo ──
-  const GruposPropiosForm = ({grupos, addG, remG, updG, addC, remC, togG, availFn, setSalFn}) => grupos.map((g,gi)=>{
+  const GruposPropiosForm = ({grupos,remG,updG,addC,remC,togG,availFn}) => grupos.map((g,gi)=>{
     const gc=GC[gi%GC.length];
     return (
       <div key={g.id} style={{borderRadius:12,padding:16,border:"1px solid #e2e8f0",borderLeft:"4px solid "+gc.border,background:gc.bg,marginBottom:14}}>
@@ -448,23 +570,32 @@ function App() {
             </div>
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-            <button onClick={()=>go("salidas","lista")} style={{...Btn,background:sec==="salidas"&&(view==="lista"||view==="nueva")?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>🚤 Bote</button>
-            <button onClick={()=>go("salidas","calendario")} style={{...Btn,background:sec==="salidas"&&view==="calendario"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>📅 Cal.</button>
-            <button onClick={()=>go("cenotes","listaCenote")} style={{...Btn,background:sec==="cenotes"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>💧 Cenote</button>
-            <button onClick={()=>go("clientes","lista")} style={{...Btn,background:sec==="clientes"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>👥 Clientes</button>
-            <button onClick={()=>go("catalogo","catalogo")} style={{...Btn,background:sec==="catalogo"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>📂 Catalogo</button>
+            <button onClick={()=>go("salidas","lista")} style={{...Btn,background:sec==="salidas"&&(view==="lista"||view==="nueva")?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>Bote</button>
+            <button onClick={()=>go("salidas","calendario")} style={{...Btn,background:sec==="salidas"&&view==="calendario"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>Calendario</button>
+            <button onClick={()=>go("cenotes","listaCenote")} style={{...Btn,background:sec==="cenotes"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>Cenote</button>
+            <button onClick={()=>go("clientes","lista")} style={{...Btn,background:sec==="clientes"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>Clientes</button>
+            <button onClick={()=>go("catalogo","catalogo")} style={{...Btn,background:sec==="catalogo"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>Catalogo</button>
+            {isAdmin&&<button onClick={()=>go("usuarios","usuarios")} style={{...Btn,background:sec==="usuarios"?"#0ea5e9":"rgba(255,255,255,0.12)",color:"#fff"}}>Usuarios</button>}
             <div style={{width:1,height:28,background:"rgba(255,255,255,0.2)"}}/>
             <button onClick={exportXLS} style={{...Btn,background:"#065f46",color:"#fff"}}>Excel</button>
-            {sec==="salidas"&&<button onClick={()=>{setSf(newSalida());setSs("programada");setSid(null);go("salidas","nueva");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Bote</button>}
-            {sec==="cenotes"&&<button onClick={()=>{setScf(newSalidaCenote());setScss("programada");setScid(null);go("cenotes","nuevaCenote");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Cenote</button>}
-            {sec==="clientes"&&<button onClick={()=>{setCf(newCliente());setCid(null);setDup(null);go("clientes","clienteForm");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Cliente</button>}
+            {canEdit&&sec==="salidas"&&<button onClick={()=>{setSf(newSalida());setSs("programada");setSid(null);go("salidas","nueva");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Bote</button>}
+            {canEdit&&sec==="cenotes"&&<button onClick={()=>{setScf(newSalidaCenote());setScss("programada");setScid(null);go("cenotes","nuevaCenote");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Cenote</button>}
+            {canEdit&&sec==="clientes"&&<button onClick={()=>{setCf(newCliente());setCid(null);setDup(null);go("clientes","clienteForm");}} style={{...Btn,background:"#0369a1",color:"#fff",fontWeight:700}}>+ Cliente</button>}
+            {/* Usuario actual */}
+            <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.1)",borderRadius:8,padding:"6px 10px"}}>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:11,color:"#7dd3fc"}}>{session.user.email}</div>
+                <div style={{fontSize:10,color:rolColor(userRole).color,background:rolColor(userRole).bg,borderRadius:4,padding:"1px 6px",fontWeight:700,display:"inline-block",marginTop:2}}>{userRole}</div>
+              </div>
+              <button onClick={onLogout} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:6,padding:"5px 10px",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:600}}>Salir</button>
+            </div>
           </div>
         </div>
       </header>
 
       <main style={{maxWidth:1200,margin:"0 auto",padding:"24px 16px"}}>
 
-        {/* ══ STATS BOTE ══ */}
+        {/* Stats bote */}
         {sec==="salidas"&&view!=="nueva"&&(
           <div style={{display:"flex",gap:12,marginBottom:24,flexWrap:"wrap"}}>
             {Object.entries(STATUS).map(([k,v])=>(
@@ -480,7 +611,7 @@ function App() {
           </div>
         )}
 
-        {/* ══ STATS CENOTE ══ */}
+        {/* Stats cenote */}
         {sec==="cenotes"&&view!=="nuevaCenote"&&(
           <div style={{display:"flex",gap:12,marginBottom:24,flexWrap:"wrap"}}>
             {Object.entries(STATUS).map(([k,v])=>(
@@ -497,9 +628,9 @@ function App() {
         )}
 
         {/* ══ FORM SALIDA BOTE ══ */}
-        {sec==="salidas"&&view==="nueva"&&(
+        {sec==="salidas"&&view==="nueva"&&canEdit&&(
           <div style={Card}>
-            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{sid?"Editar Salida Bote":"Nueva Salida Bote 🚤"}</h2>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{sid?"Editar Salida Bote":"Nueva Salida Bote"}</h2>
             <SLbl>Datos del bote</SLbl>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:24}}>
               <FF label="Fecha *" type="date" value={sf.fecha} onChange={v=>setSf({...sf,fecha:v})}/>
@@ -520,20 +651,18 @@ function App() {
               </div>
             </div>
 
-            {/* Grupos propios */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <SLbl>Grupos propios</SLbl>
               <button onClick={addGrupo} style={{...Btn,background:"#0c4a6e",color:"#fff",fontSize:12}}>+ Agregar grupo</button>
             </div>
             {sf.grupos.length===0&&<div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>Nuestros instructores/DM con clientes propios.</div>}
-            <GruposPropiosForm grupos={sf.grupos} addG={addGrupo} remG={remGrupo} updG={updGrupo} addC={addCli} remC={remCli} togG={togGear} availFn={avail}/>
+            <GruposPropiosForm grupos={sf.grupos} remG={remGrupo} updG={updGrupo} addC={addCli} remC={remCli} togG={togGear} availFn={avail}/>
 
-            {/* Grupos Staff + Agencia externa */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"20px 0 12px"}}>
               <SLbl>Nuestro Staff con agencia externa</SLbl>
               <button onClick={addGrupoStaff} style={{...Btn,background:"#5b21b6",color:"#fff",fontSize:12}}>+ Agregar</button>
             </div>
-            {(sf.gruposStaff||[]).length===0&&<div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>Nuestro DM/Instructor guiando clientes de una agencia externa en el bote.</div>}
+            {(sf.gruposStaff||[]).length===0&&<div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>Nuestro DM/Instructor guiando clientes de una agencia externa.</div>}
             {(sf.gruposStaff||[]).map((g,gi)=>(
               <div key={g.id} style={{borderRadius:12,padding:16,border:"1px solid #e2e8f0",borderLeft:"4px solid "+GC_STAF.border,background:GC_STAF.bg,marginBottom:14}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
@@ -563,7 +692,6 @@ function App() {
               </div>
             ))}
 
-            {/* Grupos externos */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"20px 0 12px"}}>
               <SLbl>Grupos externos completos</SLbl>
               <button onClick={addGrupoExt} style={{...Btn,background:"#475569",color:"#fff",fontSize:12}}>+ Agregar</button>
@@ -578,10 +706,7 @@ function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
                   <FF label="Nombre del grupo / Agencia" placeholder="Ej. Ocean Divers" value={g.nombreGrupo||""} onChange={v=>updGrupoExt(gi,"nombreGrupo",v)}/>
                   <FF label="DM externo" placeholder="Nombre del DM" value={g.dmExterno||""} onChange={v=>updGrupoExt(gi,"dmExterno",v)}/>
-                  <div>
-                    <label style={LS}>Numero de pax</label>
-                    <input type="number" min={1} style={IS} value={g.pax||1} onChange={e=>updGrupoExt(gi,"pax",e.target.value)}/>
-                  </div>
+                  <div><label style={LS}>Numero de pax</label><input type="number" min={1} style={IS} value={g.pax||1} onChange={e=>updGrupoExt(gi,"pax",e.target.value)}/></div>
                 </div>
                 <div>
                   <label style={LS}>Equipo que utilizan</label>
@@ -612,10 +737,10 @@ function App() {
           </div>
         )}
 
-        {/* ══ FORM SALIDA CENOTE ══ */}
-        {sec==="cenotes"&&view==="nuevaCenote"&&(
+        {/* ══ FORM CENOTE ══ */}
+        {sec==="cenotes"&&view==="nuevaCenote"&&canEdit&&(
           <div style={Card}>
-            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0f766e"}}>{scid?"Editar Salida Cenote":"Nueva Salida Cenote 💧"}</h2>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0f766e"}}>{scid?"Editar Salida Cenote":"Nueva Salida Cenote"}</h2>
             <SLbl>Datos del cenote</SLbl>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:24}}>
               <FF label="Fecha *" type="date" value={scf.fecha} onChange={v=>setScf({...scf,fecha:v})}/>
@@ -626,17 +751,15 @@ function App() {
                   <option value="">-- Seleccionar cenote --</option>
                   {cenotes.map(c=><option key={c.id} value={c.id}>{c.nombre}{c.ubicacion?" - "+c.ubicacion:""}</option>)}
                 </select>
-                {cenotes.length===0&&<div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>No hay cenotes registrados. <span style={{color:"#0f766e",cursor:"pointer",fontWeight:600}} onClick={()=>go("catalogo","cenoteForm")}>Registra uno en Catalogo</span></div>}
+                {cenotes.length===0&&<div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>No hay cenotes. Registra uno en Catalogo.</div>}
               </div>
             </div>
-
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <SLbl>Grupos</SLbl>
               <button onClick={addGrupoCenote} style={{...Btn,background:"#0f766e",color:"#fff",fontSize:12}}>+ Agregar grupo</button>
             </div>
-            {scf.grupos.length===0&&<div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>Agrega un grupo con su instructor/DM y clientes.</div>}
-            <GruposPropiosForm grupos={scf.grupos} addG={addGrupoCenote} remG={remGrupoCenote} updG={updGrupoCenote} addC={addCliCenote} remC={remCliCenote} togG={togGearCenote} availFn={availCenote}/>
-
+            {scf.grupos.length===0&&<div style={{fontSize:13,color:"#94a3b8",marginBottom:16,padding:12,background:"#f8fafc",borderRadius:8}}>Agrega un grupo con instructor/DM y clientes.</div>}
+            <GruposPropiosForm grupos={scf.grupos} remG={remGrupoCenote} updG={updGrupoCenote} addC={addCliCenote} remC={remCliCenote} togG={togGearCenote} availFn={availCenote}/>
             <div style={{marginTop:20}}>
               <SLbl>Estado y notas</SLbl>
               <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
@@ -654,7 +777,7 @@ function App() {
           </div>
         )}
 
-        {/* ══ LISTA SALIDAS BOTE ══ */}
+        {/* ══ LISTA BOTE ══ */}
         {sec==="salidas"&&view==="lista"&&(<>
           <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
             <input style={{...IS,flex:1,minWidth:220}} placeholder="Buscar embarcacion, instructor, cliente..." value={sQ} onChange={e=>setSQ(e.target.value)}/>
@@ -689,12 +812,13 @@ function App() {
                         {(nP+nE+nS)>0&&<span style={{...Chip,background:"#f0fdfa",color:"#0f766e",fontWeight:700}}>Total: {nP+nE+nS} pax</span>}
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-                        <select value={s.status} onChange={e=>chgStatus(s.id,e.target.value)} style={{border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",background:sc.bg,color:sc.text}}>
+                        {canEdit&&<select value={s.status} onChange={e=>chgStatus(s.id,e.target.value)} style={{border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",background:sc.bg,color:sc.text}}>
                           {Object.entries(STATUS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-                        </select>
-                        <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editSalida(s)}>✏️</button>
-                        <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delSalida(s.id)}>🗑️</button>
-                        <button onClick={()=>setSExp(x=>({...x,[s.id]:!x[s.id]}))} style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#0c4a6e"}}>{isExp?"Ocultar":"Ver grupos"}</button>
+                        </select>}
+                        {!canEdit&&<span style={{...Chip,background:sc.bg,color:sc.text,fontWeight:700}}>{sc.label}</span>}
+                        {canEdit&&<button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editSalida(s)}>✏️</button>}
+                        {canDelete&&<button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delSalida(s.id)}>🗑️</button>}
+                        <button onClick={()=>setSExp(x=>({...x,[s.id]:!x[s.id]}))} style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#0c4a6e"}}>{isExp?"Ocultar":"Ver"}</button>
                       </div>
                     </div>
                     {isExp&&(
@@ -737,19 +861,19 @@ function App() {
                           })}
                         </>)}
                         {(s.gruposStaff||[]).length>0&&(<>
-                          <div style={{fontSize:11,fontWeight:700,color:"#5b21b6",textTransform:"uppercase",letterSpacing:"1px",margin:"14px 0 10px"}}>Nuestro Staff con agencia externa</div>
+                          <div style={{fontSize:11,fontWeight:700,color:"#5b21b6",textTransform:"uppercase",letterSpacing:"1px",margin:"14px 0 10px"}}>Staff con agencia externa</div>
                           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
                             {(s.gruposStaff||[]).map((g,gi)=>(
                               <div key={gi} style={{borderRadius:10,padding:12,borderLeft:"4px solid "+GC_STAF.border,background:GC_STAF.bg}}>
                                 <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>👤 {g.staffNombre||"--"}</div>
-                                <div style={{fontSize:13,color:"#475569",marginBottom:4}}>🏢 Agencia: {g.agencia||"--"}</div>
-                                <div style={{fontSize:13,color:"#475569"}}>👥 {g.pax} pax externos</div>
+                                <div style={{fontSize:13,color:"#475569",marginBottom:4}}>🏢 {g.agencia||"--"}</div>
+                                <div style={{fontSize:13,color:"#475569"}}>👥 {g.pax} pax</div>
                               </div>
                             ))}
                           </div>
                         </>)}
                         {(s.gruposExternos||[]).length>0&&(<>
-                          <div style={{fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:"1px",margin:"14px 0 10px"}}>Grupos externos completos</div>
+                          <div style={{fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:"1px",margin:"14px 0 10px"}}>Grupos externos</div>
                           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
                             {(s.gruposExternos||[]).map((g,gi)=>(
                               <div key={gi} style={{borderRadius:10,padding:12,borderLeft:"4px solid "+GC_EXT.border,background:GC_EXT.bg}}>
@@ -771,7 +895,7 @@ function App() {
           )}
         </>)}
 
-        {/* ══ LISTA SALIDAS CENOTE ══ */}
+        {/* ══ LISTA CENOTE ══ */}
         {sec==="cenotes"&&view==="listaCenote"&&(<>
           <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
             <input style={{...IS,flex:1,minWidth:220}} placeholder="Buscar cenote, instructor, cliente..." value={scQ} onChange={e=>setScQ(e.target.value)}/>
@@ -786,8 +910,7 @@ function App() {
           ):(
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               {fSalCenote.map(s=>{
-                const sc=STATUS[s.status], isExp=scExp[s.id];
-                const nC=tPaxCenote(s);
+                const sc=STATUS[s.status], isExp=scExp[s.id], nC=tPaxCenote(s);
                 return (
                   <div key={s.id} style={{...Card,padding:0,overflow:"hidden",borderTop:"3px solid #14b8a6"}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",flexWrap:"wrap",gap:10}}>
@@ -800,12 +923,13 @@ function App() {
                         <span style={{...Chip,background:"#f0fdfa",color:"#0f766e",fontWeight:700}}>🤿 {nC} buzo{nC!==1?"s":""}</span>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-                        <select value={s.status} onChange={e=>chgStatusCenote(s.id,e.target.value)} style={{border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",background:sc.bg,color:sc.text}}>
+                        {canEdit&&<select value={s.status} onChange={e=>chgStatusCenote(s.id,e.target.value)} style={{border:"none",borderRadius:6,padding:"5px 8px",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",background:sc.bg,color:sc.text}}>
                           {Object.entries(STATUS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-                        </select>
-                        <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editSalidaCenote(s)}>✏️</button>
-                        <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delSalidaCenote(s.id)}>🗑️</button>
-                        <button onClick={()=>setScExp(x=>({...x,[s.id]:!x[s.id]}))} style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#0f766e"}}>{isExp?"Ocultar":"Ver grupos"}</button>
+                        </select>}
+                        {!canEdit&&<span style={{...Chip,background:sc.bg,color:sc.text,fontWeight:700}}>{sc.label}</span>}
+                        {canEdit&&<button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editSalidaCenote(s)}>✏️</button>}
+                        {canDelete&&<button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delSalidaCenote(s.id)}>🗑️</button>}
+                        <button onClick={()=>setScExp(x=>({...x,[s.id]:!x[s.id]}))} style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#0f766e"}}>{isExp?"Ocultar":"Ver"}</button>
                       </div>
                     </div>
                     {isExp&&(
@@ -862,10 +986,6 @@ function App() {
               <span style={{fontSize:20,fontWeight:700,color:"#0c4a6e",minWidth:200,textAlign:"center"}}>{MONTHS[calM]} {calY}</span>
               <button style={{background:"#f1f5f9",border:"none",borderRadius:8,width:36,height:36,fontSize:20,cursor:"pointer",color:"#0c4a6e",fontWeight:700}} onClick={()=>{if(calM===11){setCalM(0);setCalY(y=>y+1);}else setCalM(m=>m+1);setCalD(null);}}>{">"}</button>
             </div>
-            <div style={{display:"flex",gap:12,marginBottom:12,fontSize:12}}>
-              <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:"50%",background:"#0ea5e9",display:"inline-block"}}/>Bote</span>
-              <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:"50%",background:"#14b8a6",display:"inline-block"}}/>Cenote</span>
-            </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
               {DAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",padding:"6px 0"}}>{d}</div>)}
               {Array(fd).fill(null).map((_,i)=><div key={"e"+i}/>)}
@@ -887,25 +1007,23 @@ function App() {
               <div style={{marginTop:20,background:"#f8fafc",borderRadius:12,padding:20,border:"1px solid #e2e8f0"}}>
                 <div style={{fontSize:16,fontWeight:700,color:"#0c4a6e",marginBottom:14}}>
                   {calD} de {MONTHS[calM]} {calY}
-                  <span style={{fontWeight:400,fontSize:13,color:"#64748b",marginLeft:10}}>{dEvs.length} evento{dEvs.length!==1?"s":""}</span>
                 </div>
-                {dEvs.map((ev,i)=>{
-                  const sc=STATUS[ev.status];
-                  const esBote=ev.tipo==="bote";
+                {dEvs.length===0?<div style={{color:"#94a3b8"}}>No hay eventos.</div>
+                :dEvs.map((ev,i)=>{
+                  const sc=STATUS[ev.status], esBote=ev.tipo==="bote";
                   return (
                     <div key={i} style={{...Card,borderLeft:"4px solid "+(esBote?sc.dot:"#14b8a6"),marginBottom:12}}>
                       <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:8}}>
-                        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                        <div>
                           <span style={{fontWeight:700}}>{esBote?"🚤 "+embN(ev.embarcacion_id):"💧 "+cenoteN(ev.cenote_id)}</span>
-                          <span style={{fontSize:12,color:"#64748b"}}>{ev.hora}</span>
-                          {esBote&&ev.capitan_id&&<span style={{fontSize:12,color:"#64748b"}}>⚓ {staffN(ev.capitan_id)}</span>}
+                          <span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>{ev.hora}</span>
                         </div>
                         <span style={{fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:6,background:sc.bg,color:sc.text}}>{sc.label}</span>
                       </div>
-                      <div style={{display:"flex",gap:8,marginTop:8}}>
-                        <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{esBote?editSalida(ev):editSalidaCenote(ev); setCalD(null);}}>Editar</button>
-                        <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{esBote?delSalida(ev.id):delSalidaCenote(ev.id); setCalD(null);}}>Eliminar</button>
-                      </div>
+                      {canEdit&&<div style={{display:"flex",gap:8,marginTop:8}}>
+                        <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{esBote?editSalida(ev):editSalidaCenote(ev);setCalD(null);}}>Editar</button>
+                        {canDelete&&<button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{esBote?delSalida(ev.id):delSalidaCenote(ev.id);setCalD(null);}}>Eliminar</button>}
+                      </div>}
                     </div>
                   );
                 })}
@@ -923,8 +1041,7 @@ function App() {
           ):(
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
               {fCli.map(c=>{
-                const h=hist(c.id);
-                const total=h.bote.length+h.cenote.length;
+                const h=hist(c.id), total=h.bote.length+h.cenote.length;
                 return (
                   <div key={c.id} style={{...Card,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}} onClick={()=>{setCDet(c);setView("clienteDetalle");}}>
                     <div style={{width:44,height:44,borderRadius:"50%",background:"#0c4a6e",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,flexShrink:0}}>{c.nombre.charAt(0).toUpperCase()}</div>
@@ -945,7 +1062,7 @@ function App() {
         </>)}
 
         {/* ══ CLIENTE FORM ══ */}
-        {sec==="clientes"&&view==="clienteForm"&&(
+        {sec==="clientes"&&view==="clienteForm"&&canEdit&&(
           <div style={Card}>
             <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{cid?"Editar Cliente":"Nuevo Cliente"}</h2>
             {dup&&(
@@ -983,8 +1100,7 @@ function App() {
 
         {/* ══ CLIENTE DETALLE ══ */}
         {sec==="clientes"&&view==="clienteDetalle"&&cDet&&(()=>{
-          const c=clientes.find(x=>x.id===cDet.id)||cDet;
-          const h=hist(c.id);
+          const c=clientes.find(x=>x.id===cDet.id)||cDet, h=hist(c.id);
           return (<>
             <button style={{background:"none",border:"none",color:"#0369a1",fontWeight:600,fontSize:14,cursor:"pointer",marginBottom:12}} onClick={()=>setView("lista")}>Volver</button>
             <div style={Card}>
@@ -999,10 +1115,10 @@ function App() {
                     {c.numero_buzo&&<span style={{background:"#fef3c7",color:"#92400e",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>#{c.numero_buzo}</span>}
                   </div>
                 </div>
-                <div style={{display:"flex",gap:8}}>
+                {canEdit&&<div style={{display:"flex",gap:8}}>
                   <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editCli(c)}>Editar</button>
-                  <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delCli(c.id)}>Eliminar</button>
-                </div>
+                  {canDelete&&<button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delCli(c.id)}>Eliminar</button>}
+                </div>}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                 {c.telefono&&<div style={{fontSize:14,color:"#475569"}}>📱 {c.telefono}</div>}
@@ -1011,41 +1127,29 @@ function App() {
                 {c.notas&&<div style={{gridColumn:"1/-1",fontSize:14,color:"#475569"}}>📝 {c.notas}</div>}
               </div>
             </div>
-            {/* Historial bote */}
             <div style={Card}>
-              <h3 style={{fontSize:16,fontWeight:700,color:"#0c4a6e",marginBottom:16}}>🚤 Salidas en Bote <span style={{fontWeight:400,fontSize:13,color:"#64748b"}}>({h.bote.length})</span></h3>
-              {h.bote.length===0?<div style={{color:"#94a3b8",fontSize:14}}>Sin salidas en bote.</div>
+              <h3 style={{fontSize:16,fontWeight:700,color:"#0c4a6e",marginBottom:12}}>🚤 Bote <span style={{fontWeight:400,fontSize:13,color:"#64748b"}}>({h.bote.length})</span></h3>
+              {h.bote.length===0?<div style={{color:"#94a3b8",fontSize:14,marginBottom:16}}>Sin salidas en bote.</div>
               :h.bote.map(s=>{
                 const sc=STATUS[s.status], gC=s.grupos?.find(g=>g.clientes?.some(cl=>cl.clienteId===c.id)), cEG=gC?.clientes?.find(cl=>cl.clienteId===c.id), gU=GEAR.filter(g=>cEG?.gear?.[g]);
                 return (
                   <div key={s.id} style={{background:"#fff",borderRadius:10,padding:12,marginBottom:8,boxShadow:"0 1px 4px rgba(0,0,0,0.05)",borderLeft:"4px solid "+sc.dot}}>
                     <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
-                      <div>
-                        <span style={{fontWeight:700}}>🚤 {embN(s.embarcacion_id)}</span>
-                        <span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>{s.fecha} · {s.hora}</span>
-                        {gC&&<span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>👤 {gC.instructorNombre}</span>}
-                      </div>
+                      <div><span style={{fontWeight:700}}>🚤 {embN(s.embarcacion_id)}</span><span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>{s.fecha}</span>{gC&&<span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>👤 {gC.instructorNombre}</span>}</div>
                       <span style={{fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:6,background:sc.bg,color:sc.text}}>{sc.label}</span>
                     </div>
                     {gU.length>0&&<div style={{marginTop:6,display:"flex",gap:4,flexWrap:"wrap"}}>{gU.map(g=><span key={g} style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600}}>{g}</span>)}</div>}
                   </div>
                 );
               })}
-            </div>
-            {/* Historial cenote */}
-            <div style={Card}>
-              <h3 style={{fontSize:16,fontWeight:700,color:"#0f766e",marginBottom:16}}>💧 Salidas en Cenote <span style={{fontWeight:400,fontSize:13,color:"#64748b"}}>({h.cenote.length})</span></h3>
+              <h3 style={{fontSize:16,fontWeight:700,color:"#0f766e",marginBottom:12,marginTop:16}}>💧 Cenote <span style={{fontWeight:400,fontSize:13,color:"#64748b"}}>({h.cenote.length})</span></h3>
               {h.cenote.length===0?<div style={{color:"#94a3b8",fontSize:14}}>Sin salidas en cenote.</div>
               :h.cenote.map(s=>{
                 const sc=STATUS[s.status], gC=s.grupos?.find(g=>g.clientes?.some(cl=>cl.clienteId===c.id)), cEG=gC?.clientes?.find(cl=>cl.clienteId===c.id), gU=GEAR.filter(g=>cEG?.gear?.[g]);
                 return (
                   <div key={s.id} style={{background:"#fff",borderRadius:10,padding:12,marginBottom:8,boxShadow:"0 1px 4px rgba(0,0,0,0.05)",borderLeft:"4px solid #14b8a6"}}>
                     <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
-                      <div>
-                        <span style={{fontWeight:700}}>💧 {cenoteN(s.cenote_id)}</span>
-                        <span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>{s.fecha} · {s.hora}</span>
-                        {gC&&<span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>👤 {gC.instructorNombre}</span>}
-                      </div>
+                      <div><span style={{fontWeight:700}}>💧 {cenoteN(s.cenote_id)}</span><span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>{s.fecha}</span>{gC&&<span style={{marginLeft:10,fontSize:12,color:"#64748b"}}>👤 {gC.instructorNombre}</span>}</div>
                       <span style={{fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:6,background:sc.bg,color:sc.text}}>{sc.label}</span>
                     </div>
                     {gU.length>0&&<div style={{marginTop:6,display:"flex",gap:4,flexWrap:"wrap"}}>{gU.map(g=><span key={g} style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600}}>{g}</span>)}</div>}
@@ -1069,7 +1173,7 @@ function App() {
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
                   <div style={{fontSize:20,fontWeight:700,color:"#0c4a6e"}}>Staff <span style={{fontSize:13,fontWeight:400,color:"#64748b"}}>{staff.length} registrados</span></div>
-                  <button onClick={()=>{setStf(newStaff());setStfId(null);setView("staffForm");}} style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}}>+ Nuevo</button>
+                  {canEdit&&<button onClick={()=>{setStf(newStaff());setStfId(null);setView("staffForm");}} style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}}>+ Nuevo</button>}
                 </div>
                 {staff.length===0?<div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>👤</div><div style={{color:"#94a3b8",marginTop:8}}>No hay staff registrado.</div></div>:(
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
@@ -1085,10 +1189,10 @@ function App() {
                           </div>
                           {s.telefono&&<div style={{fontSize:12,color:"#64748b",marginTop:4}}>📱 {s.telefono}</div>}
                         </div>
-                        <div style={{display:"flex",gap:6}}>
+                        {canEdit&&<div style={{display:"flex",gap:6}}>
                           <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>editStaff(s)}>✏️</button>
-                          <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delStaff(s.id)}>🗑️</button>
-                        </div>
+                          {canDelete&&<button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delStaff(s.id)}>🗑️</button>}
+                        </div>}
                       </div>
                     ))}
                   </div>
@@ -1100,7 +1204,7 @@ function App() {
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
                   <div style={{fontSize:20,fontWeight:700,color:"#0c4a6e"}}>Embarcaciones <span style={{fontSize:13,fontWeight:400,color:"#64748b"}}>{embs.length} registradas</span></div>
-                  <button onClick={()=>{setEmbF(newEmb());setEmbId(null);setView("embForm");}} style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}}>+ Nuevo</button>
+                  {canEdit&&<button onClick={()=>{setEmbF(newEmb());setEmbId(null);setView("embForm");}} style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}}>+ Nuevo</button>}
                 </div>
                 {embs.length===0?<div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>🚤</div><div style={{color:"#94a3b8",marginTop:8}}>No hay embarcaciones.</div></div>:(
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
@@ -1112,10 +1216,10 @@ function App() {
                           {e.matricula&&<div style={{fontSize:12,color:"#64748b"}}>📋 {e.matricula}</div>}
                           {e.capacidad&&<div style={{fontSize:12,color:"#64748b"}}>👥 Cap. {e.capacidad} pax</div>}
                         </div>
-                        <div style={{display:"flex",gap:6}}>
+                        {canEdit&&<div style={{display:"flex",gap:6}}>
                           <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{setEmbF({nombre:e.nombre,matricula:e.matricula||"",capacidad:e.capacidad||"",notas:e.notas||""});setEmbId(e.id);setView("embForm");}}>✏️</button>
-                          <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delEmb(e.id)}>🗑️</button>
-                        </div>
+                          {canDelete&&<button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delEmb(e.id)}>🗑️</button>}
+                        </div>}
                       </div>
                     ))}
                   </div>
@@ -1127,9 +1231,9 @@ function App() {
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
                   <div style={{fontSize:20,fontWeight:700,color:"#0f766e"}}>Cenotes <span style={{fontSize:13,fontWeight:400,color:"#64748b"}}>{cenotes.length} registrados</span></div>
-                  <button onClick={()=>{setCenoteF(newCenote());setCenoteId(null);setView("cenoteForm");}} style={{...Btn,background:"#0f766e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}}>+ Nuevo</button>
+                  {canEdit&&<button onClick={()=>{setCenoteF(newCenote());setCenoteId(null);setView("cenoteForm");}} style={{...Btn,background:"#0f766e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}}>+ Nuevo</button>}
                 </div>
-                {cenotes.length===0?<div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>💧</div><div style={{color:"#94a3b8",marginTop:8}}>No hay cenotes registrados.</div></div>:(
+                {cenotes.length===0?<div style={{...Card,textAlign:"center",padding:"60px 20px"}}><div style={{fontSize:48}}>💧</div><div style={{color:"#94a3b8",marginTop:8}}>No hay cenotes.</div></div>:(
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
                     {cenotes.map(c=>(
                       <div key={c.id} style={{...Card,display:"flex",alignItems:"center",gap:12}}>
@@ -1137,12 +1241,11 @@ function App() {
                         <div style={{flex:1}}>
                           <div style={{fontWeight:700,fontSize:15}}>{c.nombre}</div>
                           {c.ubicacion&&<div style={{fontSize:12,color:"#64748b"}}>📍 {c.ubicacion}</div>}
-                          {c.notas&&<div style={{fontSize:12,color:"#64748b"}}>{c.notas}</div>}
                         </div>
-                        <div style={{display:"flex",gap:6}}>
+                        {canEdit&&<div style={{display:"flex",gap:6}}>
                           <button style={{background:"#eff6ff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>{setCenoteF({nombre:c.nombre,ubicacion:c.ubicacion||"",notas:c.notas||""});setCenoteId(c.id);setView("cenoteForm");}}>✏️</button>
-                          <button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delCenote(c.id)}>🗑️</button>
-                        </div>
+                          {canDelete&&<button style={{background:"#fff1f2",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:13}} onClick={()=>delCenote(c.id)}>🗑️</button>}
+                        </div>}
                       </div>
                     ))}
                   </div>
@@ -1152,8 +1255,8 @@ function App() {
           </div>
         )}
 
-        {/* Staff Form */}
-        {sec==="catalogo"&&view==="staffForm"&&(
+        {/* Forms catalogo */}
+        {sec==="catalogo"&&view==="staffForm"&&canEdit&&(
           <div style={Card}>
             <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{stfId?"Editar Staff":"Nuevo Staff"}</h2>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
@@ -1162,7 +1265,7 @@ function App() {
               <FF label="Telefono" value={stf.telefono||""} onChange={v=>setStf({...stf,telefono:v})}/>
               <FF label="Email" type="email" value={stf.email||""} onChange={v=>setStf({...stf,email:v})}/>
             </div>
-            <SLbl>Roles * (puede seleccionar varios)</SLbl>
+            <SLbl>Roles *</SLbl>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
               {ROLES.map(r=>{
                 const sel=(stf.roles||[]).includes(r);
@@ -1170,8 +1273,6 @@ function App() {
                 return <button key={r} onClick={()=>togRol(r)} style={{padding:"8px 18px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,background:sel?bg:"#f8fafc",color:sel?"#fff":"#64748b",border:"2px solid "+(sel?bg:"#e2e8f0")}}>{r}</button>;
               })}
             </div>
-            <label style={LS}>Notas</label>
-            <textarea style={{...IS,resize:"vertical",background:"#f8fafc"}} rows={2} value={stf.notas||""} onChange={e=>setStf({...stf,notas:e.target.value})}/>
             <div style={{display:"flex",gap:12,marginTop:20}}>
               <button style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={saveStaff}>{stfId?"Guardar":"Registrar"}</button>
               <button style={{...Btn,background:"#e2e8f0",color:"#475569",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>setView("catalogo")}>Cancelar</button>
@@ -1179,15 +1280,13 @@ function App() {
           </div>
         )}
 
-        {/* Emb Form */}
-        {sec==="catalogo"&&view==="embForm"&&(
+        {sec==="catalogo"&&view==="embForm"&&canEdit&&(
           <div style={Card}>
             <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>{embId?"Editar Embarcacion":"Nueva Embarcacion"}</h2>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
               <div style={{gridColumn:"1/-1"}}><FF label="Nombre *" placeholder="Ej. Nautilus I" value={embF.nombre} onChange={v=>setEmbF({...embF,nombre:v})}/></div>
               <FF label="Matricula" value={embF.matricula||""} onChange={v=>setEmbF({...embF,matricula:v})}/>
               <FF label="Capacidad (pax)" type="number" value={embF.capacidad||""} onChange={v=>setEmbF({...embF,capacidad:v})}/>
-              <div style={{gridColumn:"1/-1"}}><label style={LS}>Notas</label><textarea style={{...IS,resize:"vertical",background:"#f8fafc"}} rows={2} value={embF.notas||""} onChange={e=>setEmbF({...embF,notas:e.target.value})}/></div>
             </div>
             <div style={{display:"flex",gap:12,marginTop:20}}>
               <button style={{...Btn,background:"#0c4a6e",color:"#fff",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={saveEmb}>{embId?"Guardar":"Registrar"}</button>
@@ -1196,8 +1295,7 @@ function App() {
           </div>
         )}
 
-        {/* Cenote Form */}
-        {(sec==="catalogo"&&view==="cenoteForm")||(sec==="cenotes"&&view==="cenoteForm")?(
+        {(sec==="catalogo"||sec==="cenotes")&&view==="cenoteForm"&&canEdit&&(
           <div style={Card}>
             <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0f766e"}}>{cenoteId?"Editar Cenote":"Nuevo Cenote"}</h2>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
@@ -1210,7 +1308,37 @@ function App() {
               <button style={{...Btn,background:"#e2e8f0",color:"#475569",padding:"10px 22px",fontSize:14,fontWeight:600}} onClick={()=>setView("catalogo")}>Cancelar</button>
             </div>
           </div>
-        ):null}
+        )}
+
+        {/* ══ USUARIOS (solo admin) ══ */}
+        {sec==="usuarios"&&isAdmin&&(
+          <div style={Card}>
+            <h2 style={{fontSize:18,fontWeight:700,marginBottom:16,color:"#0c4a6e"}}>Gestion de Usuarios</h2>
+            <div style={{background:"#f0f9ff",borderRadius:10,padding:16,marginBottom:20,fontSize:13,color:"#0369a1"}}>
+              Los usuarios nuevos se registran solos con su correo. Aqui puedes asignar o cambiar su rol.
+            </div>
+            {userRoles.length===0?<div style={{color:"#94a3b8",fontSize:14}}>No hay usuarios registrados aun.</div>:(
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {userRoles.map(u=>{
+                  const rc=rolColor(u.role);
+                  return (
+                    <div key={u.user_id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",background:"#f8fafc",borderRadius:10,flexWrap:"wrap",gap:10}}>
+                      <div>
+                        <div style={{fontWeight:600,fontSize:14}}>{u.email||u.user_id}</div>
+                        <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,background:rc.bg,color:rc.color}}>{u.role}</span>
+                      </div>
+                      <div style={{display:"flex",gap:8}}>
+                        {USER_ROLES.map(r=>(
+                          <button key={r} onClick={()=>changeUserRole(u.user_id,r)} style={{...Btn,background:u.role===r?"#0c4a6e":"#e2e8f0",color:u.role===r?"#fff":"#475569",fontSize:12,padding:"6px 12px"}}>{r}</button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
       </main>
       {toast&&<div style={{position:"fixed",bottom:24,right:24,color:"#fff",padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:600,boxShadow:"0 4px 12px rgba(0,0,0,0.2)",zIndex:1000,background:toast.type==="error"?"#b91c1c":"#15803d"}}>{toast.msg}</div>}
